@@ -17,7 +17,6 @@ namespace CrowdControl.Games.Packs.KH2FM
     [SuppressMessage("CrowdControl", "All")]
     public class KH2FM : PS2EffectPack
     {
-
         public override Game Game => new(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
 
         private KH2FMCrowdControl kh2FMCrowdControl;
