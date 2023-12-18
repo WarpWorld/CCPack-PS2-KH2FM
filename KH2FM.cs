@@ -15,7 +15,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 {
     [UsedImplicitly]
     [SuppressMessage("CrowdControl", "All")]
-    public class KH2FMCrowdControlPack : PS2EffectPack
+    public class KH2FM : PS2EffectPack
     {
 
         public override Game Game => new(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
@@ -31,7 +31,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             }
         }
 
-        public KH2FMCrowdControlPack(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler)
+        public KH2FM(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler)
         {
             kh2FMCrowdControl = new KH2FMCrowdControl();
             effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id) { Price = (uint)x.Value.Cost, Description = x.Value.Description }).ToList();
