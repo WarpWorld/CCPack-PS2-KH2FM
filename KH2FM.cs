@@ -19,21 +19,14 @@ namespace CrowdControl.Games.Packs.KH2FM
     {
         public override Game Game => new(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
 
-        private KH2FMCrowdControl kh2FMCrowdControl;
-        private List<Effect> effects;
+        private readonly KH2FMCrowdControl kh2FMCrowdControl;
 
-        public override EffectList Effects
-        {
-            get
-            {
-                return effects;
-            }
-        }
+        public override EffectList Effects { get; }
 
         public KH2FM(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler)
         {
             kh2FMCrowdControl = new KH2FMCrowdControl();
-            effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id) { Price = (uint)x.Value.Cost, Description = x.Value.Description }).ToList();
+            Effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id) { Price = (uint)x.Value.Cost, Description = x.Value.Description }).ToList();
             Log.Message("Pack initialization complete");
 
             Timer timer = new(1000.0);
@@ -337,7 +330,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public WhoAmI() : base("Who Am I?", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to a different character.") { }
 
-            private List<int> values = new()
+            private readonly List<int> values = new()
             {
                 ConstantValues.KH1Sora, ConstantValues.CardSora, ConstantValues.DieSora, ConstantValues.LionSora, ConstantValues.ChristmasSora,
                 ConstantValues.SpaceParanoidsSora, ConstantValues.TimelessRiverSora, ConstantValues.Roxas, ConstantValues.DualwieldRoxas,
@@ -404,7 +397,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public BackseatDriver() : base("Backseat Driver", Category.Sora, SubCategory.Drive, 0, DataType.None, ManipulationType.None, 0x0, 50, "Trigger one of Sora's different form.") { }
 
-            private List<uint> values = new()
+            private readonly List<uint> values = new()
             {
                 ConstantValues.ReactionValor, ConstantValues.ReactionWisdom, ConstantValues.ReactionLimit,
                 ConstantValues.ReactionMaster, ConstantValues.ReactionFinal, //ConstantValues.ReactionAnti
@@ -446,7 +439,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public WhoAreThey() : base("Who Are They?", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Donald and Goofy to different characters.") { }
 
-            private List<int> values = new()
+            private readonly List<int> values = new()
             {
                 ConstantValues.Minnie, ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald, ConstantValues.TortoiseGoofy, 
                 //ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
@@ -624,7 +617,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public HostileParty() : base("Hostile Party", Category.ModelSwap, SubCategory.Enemy, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Donald and Goofy to random enemies.") { }
 
-            private List<int> values = new()
+            private readonly List<int> values = new()
             {
                 ConstantValues.LeonEnemy, ConstantValues.YuffieEnemy, ConstantValues.TifaEnemy, ConstantValues.CloudEnemy, ConstantValues.Xemnas, ConstantValues.Xigbar,
                 ConstantValues.Xaldin, ConstantValues.Vexen, ConstantValues.VexenAntiSora, ConstantValues.Lexaeus, ConstantValues.Zexion, ConstantValues.Saix,
@@ -755,8 +748,8 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public ShuffleShortcuts() : base("Shuffle Shortcuts", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Shortcuts to random commands.") { }
 
-            private Random random = new();
-            private Dictionary<int, Tuple<int, int>> values = new()
+            private readonly Random random = new();
+            private readonly Dictionary<int, Tuple<int, int>> values = new()
             {
                 { ConstantAddresses.Potion, new Tuple<int, int>(ConstantValues.PotionQuickSlotValue, ConstantValues.Potion) }, { ConstantAddresses.HiPotion, new Tuple<int, int>(ConstantValues.HiPotionQuickSlotValue, ConstantValues.HiPotion) },
                 { ConstantAddresses.MegaPotion, new Tuple<int, int>(ConstantValues.MegaPotionQuickSlotValue, ConstantValues.MegaPotion) }, { ConstantAddresses.Ether, new Tuple<int, int>(ConstantValues.EtherQuickSlotValue, ConstantValues.Ether) },
@@ -1075,7 +1068,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             public Itemaholic() : base("Itemaholic", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Fill Sora's inventory with all items, accessories, armor and weapons.") { }
 
             // Used to store all the information about what held items Sora had before
-            private Dictionary<uint, byte> items = new()
+            private readonly Dictionary<uint, byte> items = new()
             {
                 { (uint)ConstantAddresses.Potion, 0 }, { (uint)ConstantAddresses.HiPotion, 0 }, { (uint)ConstantAddresses.Ether, 0 },
                 { (uint)ConstantAddresses.MegaPotion, 0 }, { (uint)ConstantAddresses.MegaEther, 0 }, { (uint)ConstantAddresses.Elixir, 0 },
@@ -1119,7 +1112,7 @@ namespace CrowdControl.Games.Packs.KH2FM
                 { ConstantAddresses.TwoBecomeOne, 0 }, { ConstantAddresses.WinnersProof, 0 },
             };
 
-            private Dictionary<uint, ushort> slots = new()
+            private readonly Dictionary<uint, ushort> slots = new()
             {
                 { ConstantAddresses.SoraWeaponSlot, 0 }, { ConstantAddresses.SoraValorWeaponSlot, 0 }, { ConstantAddresses.SoraMasterWeaponSlot, 0 },
                 { ConstantAddresses.SoraFinalWeaponSlot, 0 }, { ConstantAddresses.SoraArmorSlot1, 0 }, { ConstantAddresses.SoraArmorSlot2, 0 },
@@ -1173,7 +1166,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             public SpringCleaning() : base("Spring Cleaning", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Remove all items, accessories, armor and weapons from Sora's inventory.") { }
 
             // Used to store all the information about what held items Sora had before
-            private Dictionary<uint, byte> items = new()
+            private readonly Dictionary<uint, byte> items = new()
             {
                 { (uint)ConstantAddresses.Potion, 0 }, { (uint)ConstantAddresses.HiPotion, 0 }, { (uint)ConstantAddresses.Ether, 0 },
                 { (uint)ConstantAddresses.MegaPotion, 0 }, { (uint)ConstantAddresses.MegaEther, 0 }, { (uint)ConstantAddresses.Elixir, 0 },
@@ -1217,7 +1210,7 @@ namespace CrowdControl.Games.Packs.KH2FM
                 { ConstantAddresses.TwoBecomeOne, 0 }, { ConstantAddresses.WinnersProof, 0 },
             };
 
-            private Dictionary<uint, ushort> slots = new()
+            private readonly Dictionary<uint, ushort> slots = new()
             {
                 { ConstantAddresses.SoraWeaponSlot, 0 }, { ConstantAddresses.SoraValorWeaponSlot, 0 }, { ConstantAddresses.SoraMasterWeaponSlot, 0 },
                 { ConstantAddresses.SoraFinalWeaponSlot, 0 }, { ConstantAddresses.SoraArmorSlot1, 0 }, { ConstantAddresses.SoraArmorSlot2, 0 },
@@ -1277,7 +1270,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             public SummonChauffeur() : base("Summon Chauffeur", Category.Sora, SubCategory.Summon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give all Drives and Summons to Sora.") { }
 
             // Used to store all the information about what held items Sora had before
-            private Dictionary<uint, byte> drivesSummons = new()
+            private readonly Dictionary<uint, byte> drivesSummons = new()
             {
                 { ConstantAddresses.DriveForms, 0 }, { ConstantAddresses.DriveLimitForm, 0 },
                 //{ (uint)ConstantAddresses.UkeleleBaseballCharm, 0 }, 
@@ -1334,7 +1327,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             public SummonTrainer() : base("Summon Trainer", Category.Sora, SubCategory.Summon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Remove all Drives and Summons from Sora.") { }
 
             // Used to store all the information about what held items Sora had before
-            private Dictionary<uint, byte> drivesSummons = new()
+            private readonly Dictionary<uint, byte> drivesSummons = new()
             {
                 { ConstantAddresses.DriveForms, 0 }, { ConstantAddresses.DriveLimitForm, 0 },
                 //{ (uint)ConstantAddresses.UkeleleBaseballCharm, 0 }, 
@@ -1386,9 +1379,9 @@ namespace CrowdControl.Games.Packs.KH2FM
             private byte defense;
             private byte ap;
 
-            private ExpertMagician experMagician;
-            private Itemaholic itemaholic;
-            private SummonChauffeur summonChauffeur;
+            private readonly ExpertMagician experMagician;
+            private readonly Itemaholic itemaholic;
+            private readonly SummonChauffeur summonChauffeur;
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -1454,9 +1447,9 @@ namespace CrowdControl.Games.Packs.KH2FM
             private byte defense;
             private byte ap;
 
-            private AmnesiacMagician amnesiacMagician;
-            private SpringCleaning springCleaning;
-            private SummonTrainer summonTrainer;
+            private readonly AmnesiacMagician amnesiacMagician;
+            private readonly SpringCleaning springCleaning;
+            private readonly SummonTrainer summonTrainer;
 
             public override void DoEffect(IPS2Connector connector)
             {
