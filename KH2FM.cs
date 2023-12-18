@@ -1,14 +1,15 @@
-﻿using ConnectorLib;
-using CrowdControl.Common;
-using JetBrains.Annotations;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Timers;
+using ConnectorLib;
+using CrowdControl.Common;
+using JetBrains.Annotations;
 using ConnectorType = CrowdControl.Common.ConnectorType;
-using Log = CrowdControl.Common.Log;
+using Timer = System.Timers.Timer;
+// ReSharper disable CommentTypo
 
 namespace CrowdControl.Games.Packs.KH2FM
 {
@@ -17,7 +18,7 @@ namespace CrowdControl.Games.Packs.KH2FM
     public class KH2FMCrowdControlPack : PS2EffectPack
     {
 
-        public override Game Game => new Game(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
+        public override Game Game => new(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
 
         private KH2FMCrowdControl kh2FMCrowdControl;
         private List<Effect> effects;
@@ -33,11 +34,11 @@ namespace CrowdControl.Games.Packs.KH2FM
         public KH2FMCrowdControlPack(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler)
         {
             kh2FMCrowdControl = new KH2FMCrowdControl();
-            effects = kh2FMCrowdControl.Options.Select((x) => new Effect(x.Value.Name, x.Value.Id) { Price = (uint)x.Value.Cost, Description = x.Value.Description }).ToList();
+            effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id) { Price = (uint)x.Value.Cost, Description = x.Value.Description }).ToList();
             Log.Message("Pack initialization complete");
 
-            Timer timer = new Timer(1000.0);
-            timer.Elapsed += (obj, args) => { kh2FMCrowdControl.FixTPose(Connector); };
+            Timer timer = new(1000.0);
+            timer.Elapsed += (_, _) => kh2FMCrowdControl.FixTPose(Connector);
 
             timer.Start();
         }
@@ -58,7 +59,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
             Log.Message($"Effect Id {effectId}");
 
-            Effect effect = this.Effects[effectId];
+            Effect effect = Effects[effectId];
             Option option = kh2FMCrowdControl.Options[effectId];
 
             option.StartEffect(Connector);
@@ -72,7 +73,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         public string Name { get; set; }
         public string Id { get; set; } // Used primarily to create a unique, formatted ID
         public string Description { get; set; }
-        public uint Value { get; set; }
+        public int Value { get; set; }
         public int Cost { get; set; }
         public Category Category { get; set; }
         public SubCategory SubCategory { get; set; }
@@ -84,19 +85,19 @@ namespace CrowdControl.Games.Packs.KH2FM
         public int DurationSeconds { get; set; }
 
         public Option() { }
-        public Option(string name, Category category, SubCategory subCategory, uint value, DataType dataType, ManipulationType manipulationType, uint address, int cost, string description, int durationSeconds = 30)
+        public Option(string name, Category category, SubCategory subCategory, int value, DataType dataType, ManipulationType manipulationType, uint address, int cost, string description, int durationSeconds = 30)
         {
-            this.Name = ToString(name, manipulationType, value);
-            this.Id = ToId(category, subCategory, name, manipulationType, value);
-            this.Category = category;
-            this.SubCategory = subCategory;
-            this.Value = value;
-            this.DataType = dataType;
-            this.ManipulationType = manipulationType;
-            this.Address = address;
-            this.Cost = cost;
-            this.Description = description;
-            this.DurationSeconds = durationSeconds;
+            Name = ToString(name, manipulationType, value);
+            Id = ToId(category, subCategory, name, manipulationType, value);
+            Category = category;
+            SubCategory = subCategory;
+            Value = value;
+            DataType = dataType;
+            ManipulationType = manipulationType;
+            Address = address;
+            Cost = cost;
+            Description = description;
+            DurationSeconds = durationSeconds;
         }
 
         public bool StartEffect(IPS2Connector connector)
@@ -121,7 +122,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         public abstract void UndoEffect(IPS2Connector connector);
 
-        public static string ToString(string objectName, ManipulationType type, uint count)
+        public static string ToString(string objectName, ManipulationType type, int count)
         {
             if (type != ManipulationType.Set)
             {
@@ -129,15 +130,18 @@ namespace CrowdControl.Games.Packs.KH2FM
                 {
                     return $"Give {count} {objectName}s";
                 }
-                else if (count == 1)
+
+                if (count == 1)
                 {
                     return $"Give {objectName}";
                 }
-                else if (count == -1)
+
+                if (count == -1)
                 {
                     return $"Take {objectName}";
                 }
-                else if (count < -1)
+
+                if (count < -1)
                 {
                     return $"Take {-count} {objectName}s";
                 }
@@ -146,7 +150,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             return $"{objectName}";
         }
 
-        public static string ToId(Category category, SubCategory subCategory, string objectName, ManipulationType manipulationType, uint count)
+        public static string ToId(Category category, SubCategory subCategory, string objectName, ManipulationType manipulationType, int count)
         {
             string modifiedCategory = category.ToString().Replace(" ", "_").Replace("'", "").ToLower();
             string modifiedSubCategory = subCategory.ToString().Replace(" ", "_").Replace("'", "").ToLower();
@@ -158,7 +162,8 @@ namespace CrowdControl.Games.Packs.KH2FM
                 {
                     return $"give_{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}_{count}";
                 }
-                else if (count < 0)
+
+                if (count < 0)
                 {
                     return $"take_{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}_{count}";
                 }
@@ -211,6 +216,8 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         public void FixTPose(IPS2Connector connector)
         {
+            if (connector == null) return;
+
             connector.Read64LE(0x20341708, out ulong animationStateOffset);
 
             connector.Read8(0x2033CC38, out byte cameraLock);
@@ -231,8 +238,8 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public OneShotSora() : base("1 Shot Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Max and Current HP to 1.") { }
 
-            private uint currentHP = 0;
-            private uint maxHP = 0;
+            private uint currentHP;
+            private uint maxHP;
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -257,9 +264,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
             public override void DoEffect(IPS2Connector connector)
             {
-                uint maxHP;
-
-                connector.Read32LE(ConstantAddresses.MaxHP, out maxHP);
+                connector.Read32LE(ConstantAddresses.MaxHP, out uint maxHP);
 
                 connector.Write32LE(ConstantAddresses.HP, maxHP);
             }
@@ -269,8 +274,8 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class Invulnerability : Option
         {
-            private uint currentHP = 0;
-            private uint maxHP = 0;
+            private uint currentHP;
+            private uint maxHP;
             private Timer? timer;
 
             public Invulnerability() : base("Invulnerability", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to be invulnerable.") { }
@@ -307,9 +312,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             public MoneybagsSora() : base("Munnybags Sora", Category.Sora, SubCategory.Munny, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora 9999 Munny.", 0) { }
             public override void DoEffect(IPS2Connector connector)
             {
-                uint munny;
-
-                connector.Read32LE(ConstantAddresses.Munny, out munny);
+                connector.Read32LE(ConstantAddresses.Munny, out uint munny);
 
                 int newAmount = (int)munny + 9999;
 
@@ -335,7 +338,8 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public WhoAmI() : base("Who Am I?", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to a different character.") { }
 
-            private List<int> values = new List<int> {
+            private List<int> values = new()
+            {
                 ConstantValues.KH1Sora, ConstantValues.CardSora, ConstantValues.DieSora, ConstantValues.LionSora, ConstantValues.ChristmasSora,
                 ConstantValues.SpaceParanoidsSora, ConstantValues.TimelessRiverSora, ConstantValues.Roxas, ConstantValues.DualwieldRoxas,
                 ConstantValues.MickeyRobed, ConstantValues.Mickey, ConstantValues.Minnie,
@@ -401,7 +405,8 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public BackseatDriver() : base("Backseat Driver", Category.Sora, SubCategory.Drive, 0, DataType.None, ManipulationType.None, 0x0, 50, "Trigger one of Sora's different form.") { }
 
-            private List<uint> values = new List<uint> {
+            private List<uint> values = new()
+            {
                 ConstantValues.ReactionValor, ConstantValues.ReactionWisdom, ConstantValues.ReactionLimit,
                 ConstantValues.ReactionMaster, ConstantValues.ReactionFinal, //ConstantValues.ReactionAnti
             };
@@ -409,8 +414,8 @@ namespace CrowdControl.Games.Packs.KH2FM
             public override void DoEffect(IPS2Connector connector)
             {
                 // Get us out of a Drive first if we are in one
-                connector.WriteFloat(ConstantAddresses.DriveTime, (float)ConstantValues.None);
-                System.Threading.Thread.Sleep(200);
+                connector.WriteFloat(ConstantAddresses.DriveTime, ConstantValues.None);
+                Thread.Sleep(200);
 
                 int randomIndex = new Random().Next(values.Count);
 
@@ -420,8 +425,8 @@ namespace CrowdControl.Games.Packs.KH2FM
 
                 connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
 
-                Timer timer = new Timer(100);
-                timer.Elapsed += (obj, args) =>
+                Timer timer = new(100);
+                timer.Elapsed += (_, _) =>
                 {
                     connector.Read16LE(ConstantAddresses.ReactionEnable, out ushort value);
 
@@ -442,7 +447,8 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public WhoAreThey() : base("Who Are They?", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Donald and Goofy to different characters.") { }
 
-            private List<int> values = new List<int> {
+            private List<int> values = new()
+            {
                 ConstantValues.Minnie, ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald, ConstantValues.TortoiseGoofy, 
                 //ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
                 //ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy, 
@@ -493,7 +499,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public SlowgaSora() : base("Slowga Sora", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Speed to be super slow.") { }
 
-            private uint speed = 0;
+            private uint speed;
             private uint speedAlt = 0;
 
             public override void DoEffect(IPS2Connector connector)
@@ -513,7 +519,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public HastegaSora() : base("Hastega Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Speed to be super fast.") { }
 
-            private uint speed = 0;
+            private uint speed;
             private uint speedAlt = 0;
 
             public override void DoEffect(IPS2Connector connector)
@@ -534,7 +540,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public SpaceJump() : base("Space Jump", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora the ability to Space Jump.") { }
 
-            private uint jump = 0;
+            private uint jump;
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -554,7 +560,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public TinyWeapon() : base("Tiny Weapon", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Weapon size to be tiny.") { }
 
-            private uint currentWeaponSize = 0;
+            private uint currentWeaponSize;
             private uint currentWeaponSizeAlt = 0;
 
             public override void DoEffect(IPS2Connector connector)
@@ -578,7 +584,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public GiantWeapon() : base("Giant Weapon", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Weapon size to be huge.") { }
 
-            private uint currentWeaponSize = 0;
+            private uint currentWeaponSize;
             private uint currentWeaponSizeAlt = 0;
 
             public override void DoEffect(IPS2Connector connector)
@@ -601,7 +607,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public Struggling() : base("Struggling", Category.Sora, SubCategory.Weapon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Change Sora's weapon to the Struggle Bat.") { }
 
-            private ushort currentKeyblade = 0;
+            private ushort currentKeyblade;
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -619,7 +625,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public HostileParty() : base("Hostile Party", Category.ModelSwap, SubCategory.Enemy, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Donald and Goofy to random enemies.") { }
 
-            private List<int> values = new List<int>
+            private List<int> values = new()
             {
                 ConstantValues.LeonEnemy, ConstantValues.YuffieEnemy, ConstantValues.TifaEnemy, ConstantValues.CloudEnemy, ConstantValues.Xemnas, ConstantValues.Xigbar,
                 ConstantValues.Xaldin, ConstantValues.Vexen, ConstantValues.VexenAntiSora, ConstantValues.Lexaeus, ConstantValues.Zexion, ConstantValues.Saix,
@@ -670,8 +676,8 @@ namespace CrowdControl.Games.Packs.KH2FM
             public override void DoEffect(IPS2Connector connector)
             {
                 // Get us out of a Drive first if we are in one
-                connector.WriteFloat(ConstantAddresses.DriveTime, (float)ConstantValues.None);
-                System.Threading.Thread.Sleep(200);
+                connector.WriteFloat(ConstantAddresses.DriveTime, ConstantValues.None);
+                Thread.Sleep(200);
 
                 connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
 
@@ -679,8 +685,8 @@ namespace CrowdControl.Games.Packs.KH2FM
 
                 connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
 
-                Timer timer = new Timer(100);
-                timer.Elapsed += (obj, args) =>
+                Timer timer = new(100);
+                timer.Elapsed += (_, _) =>
                 {
                     connector.Read16LE(ConstantAddresses.ReactionEnable, out ushort value);
 
@@ -730,7 +736,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public RandomizeControls() : base("Randomize Controls", Category.None, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Randomize the controls to the game.") { }
 
-            private Dictionary<uint, uint> controls = new Dictionary<uint, uint>
+            private Dictionary<uint, uint> controls = new()
             {
                 //{ ConstantAddresses.Control, 0 },
             };
@@ -750,8 +756,8 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public ShuffleShortcuts() : base("Shuffle Shortcuts", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Shortcuts to random commands.") { }
 
-            private Random random = new Random();
-            private Dictionary<int, Tuple<int, int>> values = new Dictionary<int, Tuple<int, int>>
+            private Random random = new();
+            private Dictionary<int, Tuple<int, int>> values = new()
             {
                 { ConstantAddresses.Potion, new Tuple<int, int>(ConstantValues.PotionQuickSlotValue, ConstantValues.Potion) }, { ConstantAddresses.HiPotion, new Tuple<int, int>(ConstantValues.HiPotionQuickSlotValue, ConstantValues.HiPotion) },
                 { ConstantAddresses.MegaPotion, new Tuple<int, int>(ConstantValues.MegaPotionQuickSlotValue, ConstantValues.MegaPotion) }, { ConstantAddresses.Ether, new Tuple<int, int>(ConstantValues.EtherQuickSlotValue, ConstantValues.Ether) },
@@ -762,23 +768,22 @@ namespace CrowdControl.Games.Packs.KH2FM
                 { ConstantAddresses.Magnet, new Tuple<int, int>(ConstantValues.MagnetQuickSlotValue, ConstantValues.Magnet) }
             };
 
-            private ushort shortcut1 = 0;
-            private ushort shortcut2 = 0;
-            private ushort shortcut3 = 0;
-            private ushort shortcut4 = 0;
+            private ushort shortcut1;
+            private ushort shortcut2;
+            private ushort shortcut3;
+            private ushort shortcut4;
 
-            private ulong shortcut1_set = 0;
-            private ulong shortcut2_set = 0;
-            private ulong shortcut3_set = 0;
-            private ulong shortcut4_set = 0;
+            private ulong shortcut1_set;
+            private ulong shortcut2_set;
+            private ulong shortcut3_set;
+            private ulong shortcut4_set;
 
             private int CheckQuickSlot(IPS2Connector connector, int key, Tuple<int, int> value, int shortcutNumber)
             {
                 if (key != ConstantAddresses.Fire && key != ConstantAddresses.Blizzard && key != ConstantAddresses.Thunder &&
                     key != ConstantAddresses.Cure && key != ConstantAddresses.Reflect && key != ConstantAddresses.Magnet)
                 {
-                    ushort itemValue;
-                    connector.Read16LE((ulong)key, out itemValue);
+                    connector.Read16LE((ulong)key, out ushort itemValue);
 
                     connector.Write16LE((ulong)key, (ushort)(itemValue + 1));
 
@@ -804,45 +809,42 @@ namespace CrowdControl.Games.Packs.KH2FM
 
                     return value.Item1;
                 }
-                else
+
+                connector.Read8((ulong)key, out byte byteValue);
+
+                if (byteValue == 0)
                 {
-                    byte byteValue;
-                    connector.Read8((ulong)key, out byteValue);
+                    connector.Write8((ulong)key, (byte)value.Item2);
 
-                    if (byteValue == 0)
+                    switch (shortcutNumber)
                     {
-                        connector.Write8((ulong)key, (byte)value.Item2);
-
-                        switch (shortcutNumber)
-                        {
-                            case 1:
-                                shortcut1_set = (ulong)key;
-                                break;
-                            case 2:
-                                shortcut2_set = (ulong)key;
-                                break;
-                            case 3:
-                                shortcut3_set = (ulong)key;
-                                break;
-                            case 4:
-                                shortcut4_set = (ulong)key;
-                                break;
-                        }
+                        case 1:
+                            shortcut1_set = (ulong)key;
+                            break;
+                        case 2:
+                            shortcut2_set = (ulong)key;
+                            break;
+                        case 3:
+                            shortcut3_set = (ulong)key;
+                            break;
+                        case 4:
+                            shortcut4_set = (ulong)key;
+                            break;
                     }
-
-                    if (key == ConstantAddresses.Fire)
-                        return ConstantValues.FireQuickSlotValue;
-                    else if (key == ConstantAddresses.Blizzard)
-                        return ConstantValues.BlizzardQuickSlotValue;
-                    else if (key == ConstantAddresses.Thunder)
-                        return ConstantValues.ThunderQuickSlotValue;
-                    else if (key == ConstantAddresses.Cure)
-                        return ConstantValues.CureQuickSlotValue;
-                    else if (key == ConstantAddresses.Reflect)
-                        return ConstantValues.ReflectQuickSlotValue;
-                    else if (key == ConstantAddresses.Magnet)
-                        return ConstantValues.MagnetQuickSlotValue;
                 }
+
+                if (key == ConstantAddresses.Fire)
+                    return ConstantValues.FireQuickSlotValue;
+                if (key == ConstantAddresses.Blizzard)
+                    return ConstantValues.BlizzardQuickSlotValue;
+                if (key == ConstantAddresses.Thunder)
+                    return ConstantValues.ThunderQuickSlotValue;
+                if (key == ConstantAddresses.Cure)
+                    return ConstantValues.CureQuickSlotValue;
+                if (key == ConstantAddresses.Reflect)
+                    return ConstantValues.ReflectQuickSlotValue;
+                if (key == ConstantAddresses.Magnet)
+                    return ConstantValues.MagnetQuickSlotValue;
 
                 return ConstantValues.None;
             }
@@ -905,7 +907,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public GrowthSpurt() : base("Growth Spurt", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora Max Growth abilities.") { }
 
-            private uint startAddress = 0;
+            private uint startAddress;
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -961,19 +963,19 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public ExpertMagician() : base("Expert Magician", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora Max Magic and lower the cost of Magic.") { }
 
-            private byte fire = 0;
-            private byte blizzard = 0;
-            private byte thunder = 0;
-            private byte cure = 0;
-            private byte reflect = 0;
-            private byte magnet = 0;
+            private byte fire;
+            private byte blizzard;
+            private byte thunder;
+            private byte cure;
+            private byte reflect;
+            private byte magnet;
 
-            private byte fireCost = 0;
-            private byte blizzardCost = 0;
-            private byte thunderCost = 0;
-            private byte cureCost = 0;
-            private byte reflectCost = 0;
-            private byte magnetCost = 0;
+            private byte fireCost;
+            private byte blizzardCost;
+            private byte thunderCost;
+            private byte cureCost;
+            private byte reflectCost;
+            private byte magnetCost;
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -994,20 +996,20 @@ namespace CrowdControl.Games.Packs.KH2FM
                 connector.Write8((ulong)ConstantAddresses.Magnet, (byte)ConstantValues.Magnega);
 
                 // Save Magic Costs
-                connector.Read8((ulong)ConstantAddresses.FiragaCost, out fireCost);
-                connector.Read8((ulong)ConstantAddresses.BlizzagaCost, out blizzardCost);
-                connector.Read8((ulong)ConstantAddresses.ThundagaCost, out thunderCost);
-                connector.Read8((ulong)ConstantAddresses.CuragaCost, out cureCost);
-                connector.Read8((ulong)ConstantAddresses.ReflegaCost, out reflectCost);
-                connector.Read8((ulong)ConstantAddresses.MagnegaCost, out magnetCost);
+                connector.Read8(ConstantAddresses.FiragaCost, out fireCost);
+                connector.Read8(ConstantAddresses.BlizzagaCost, out blizzardCost);
+                connector.Read8(ConstantAddresses.ThundagaCost, out thunderCost);
+                connector.Read8(ConstantAddresses.CuragaCost, out cureCost);
+                connector.Read8(ConstantAddresses.ReflegaCost, out reflectCost);
+                connector.Read8(ConstantAddresses.MagnegaCost, out magnetCost);
 
                 // Write Magic Costs
-                connector.Write8((ulong)ConstantAddresses.FiragaCost, 0x1);
-                connector.Write8((ulong)ConstantAddresses.BlizzagaCost, 0x2);
-                connector.Write8((ulong)ConstantAddresses.ThundagaCost, 0x3);
-                connector.Write8((ulong)ConstantAddresses.CuragaCost, 0x10);
-                connector.Write8((ulong)ConstantAddresses.ReflegaCost, 0x6);
-                connector.Write8((ulong)ConstantAddresses.MagnegaCost, 0x5);
+                connector.Write8(ConstantAddresses.FiragaCost, 0x1);
+                connector.Write8(ConstantAddresses.BlizzagaCost, 0x2);
+                connector.Write8(ConstantAddresses.ThundagaCost, 0x3);
+                connector.Write8(ConstantAddresses.CuragaCost, 0x10);
+                connector.Write8(ConstantAddresses.ReflegaCost, 0x6);
+                connector.Write8(ConstantAddresses.MagnegaCost, 0x5);
             }
 
             public override void UndoEffect(IPS2Connector connector)
@@ -1021,12 +1023,12 @@ namespace CrowdControl.Games.Packs.KH2FM
                 connector.Write8((ulong)ConstantAddresses.Magnet, magnet);
 
                 // Write back saved Magic Costs
-                connector.Write8((ulong)ConstantAddresses.FiragaCost, fireCost);
-                connector.Write8((ulong)ConstantAddresses.BlizzagaCost, blizzardCost);
-                connector.Write8((ulong)ConstantAddresses.ThundagaCost, thunderCost);
-                connector.Write8((ulong)ConstantAddresses.CuragaCost, cureCost);
-                connector.Write8((ulong)ConstantAddresses.ReflegaCost, reflectCost);
-                connector.Write8((ulong)ConstantAddresses.MagnegaCost, magnetCost);
+                connector.Write8(ConstantAddresses.FiragaCost, fireCost);
+                connector.Write8(ConstantAddresses.BlizzagaCost, blizzardCost);
+                connector.Write8(ConstantAddresses.ThundagaCost, thunderCost);
+                connector.Write8(ConstantAddresses.CuragaCost, cureCost);
+                connector.Write8(ConstantAddresses.ReflegaCost, reflectCost);
+                connector.Write8(ConstantAddresses.MagnegaCost, magnetCost);
             }
         }
 
@@ -1034,12 +1036,12 @@ namespace CrowdControl.Games.Packs.KH2FM
         {
             public AmnesiacMagician() : base("Amnesiac Magician", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Take away all of Sora's Magic.") { }
 
-            private byte fire = 0;
-            private byte blizzard = 0;
-            private byte thunder = 0;
-            private byte cure = 0;
-            private byte reflect = 0;
-            private byte magnet = 0;
+            private byte fire;
+            private byte blizzard;
+            private byte thunder;
+            private byte cure;
+            private byte reflect;
+            private byte magnet;
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -1074,7 +1076,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             public Itemaholic() : base("Itemaholic", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Fill Sora's inventory with all items, accessories, armor and weapons.") { }
 
             // Used to store all the information about what held items Sora had before
-            private Dictionary<uint, byte> items = new Dictionary<uint, byte>
+            private Dictionary<uint, byte> items = new()
             {
                 { (uint)ConstantAddresses.Potion, 0 }, { (uint)ConstantAddresses.HiPotion, 0 }, { (uint)ConstantAddresses.Ether, 0 },
                 { (uint)ConstantAddresses.MegaPotion, 0 }, { (uint)ConstantAddresses.MegaEther, 0 }, { (uint)ConstantAddresses.Elixir, 0 },
@@ -1082,51 +1084,51 @@ namespace CrowdControl.Games.Packs.KH2FM
                 { (uint)ConstantAddresses.HighDriveRecovery, 0 }, { (uint)ConstantAddresses.PowerBoost, 0 }, { (uint)ConstantAddresses.MagicBoost, 0 },
                 { (uint)ConstantAddresses.DefenseBoost, 0 }, { (uint)ConstantAddresses.APBoost, 0 },
 
-                { (uint)ConstantAddresses.AbilityRing, 0 }, { (uint)ConstantAddresses.EngineersRing, 0 }, { (uint)ConstantAddresses.TechniciansRing, 0 },
-                { (uint)ConstantAddresses.ExpertsRing, 0 }, { (uint)ConstantAddresses.SardonyxRing, 0 }, { (uint)ConstantAddresses.TourmalineRing, 0 },
-                { (uint)ConstantAddresses.AquamarineRing, 0 }, { (uint)ConstantAddresses.GarnetRing, 0 }, { (uint)ConstantAddresses.DiamondRing, 0 },
-                { (uint)ConstantAddresses.SilverRing, 0 },{ (uint)ConstantAddresses.GoldRing, 0 }, { (uint)ConstantAddresses.PlatinumRing, 0 },
-                { (uint)ConstantAddresses.MythrilRing, 0 }, { (uint)ConstantAddresses.OrichalcumRing, 0 }, { (uint)ConstantAddresses.MastersRing, 0 },
-                { (uint)ConstantAddresses.MoonAmulet, 0 }, { (uint)ConstantAddresses.StarCharm, 0 }, { (uint)ConstantAddresses.SkillRing, 0 },
-                { (uint)ConstantAddresses.SkillfulRing, 0 }, { (uint)ConstantAddresses.SoldierEarring, 0 }, { (uint)ConstantAddresses.FencerEarring, 0 },
-                { (uint)ConstantAddresses.MageEarring, 0 }, { (uint)ConstantAddresses.SlayerEarring, 0 }, { (uint)ConstantAddresses.CosmicRing, 0 },
-                { (uint)ConstantAddresses.Medal, 0 }, { (uint)ConstantAddresses.CosmicArts, 0 }, { (uint)ConstantAddresses.ShadowArchive, 0 },
-                { (uint)ConstantAddresses.ShadowArchivePlus, 0 }, { (uint)ConstantAddresses.LuckyRing, 0 }, { (uint)ConstantAddresses.FullBloom, 0 },
-                { (uint)ConstantAddresses.FullBloomPlus, 0 }, { (uint)ConstantAddresses.DrawRing, 0 }, { (uint)ConstantAddresses.ExecutivesRing, 0 },
+                { ConstantAddresses.AbilityRing, 0 }, { ConstantAddresses.EngineersRing, 0 }, { ConstantAddresses.TechniciansRing, 0 },
+                { ConstantAddresses.ExpertsRing, 0 }, { ConstantAddresses.SardonyxRing, 0 }, { ConstantAddresses.TourmalineRing, 0 },
+                { ConstantAddresses.AquamarineRing, 0 }, { ConstantAddresses.GarnetRing, 0 }, { ConstantAddresses.DiamondRing, 0 },
+                { ConstantAddresses.SilverRing, 0 },{ ConstantAddresses.GoldRing, 0 }, { ConstantAddresses.PlatinumRing, 0 },
+                { ConstantAddresses.MythrilRing, 0 }, { ConstantAddresses.OrichalcumRing, 0 }, { ConstantAddresses.MastersRing, 0 },
+                { ConstantAddresses.MoonAmulet, 0 }, { ConstantAddresses.StarCharm, 0 }, { ConstantAddresses.SkillRing, 0 },
+                { ConstantAddresses.SkillfulRing, 0 }, { ConstantAddresses.SoldierEarring, 0 }, { ConstantAddresses.FencerEarring, 0 },
+                { ConstantAddresses.MageEarring, 0 }, { ConstantAddresses.SlayerEarring, 0 }, { ConstantAddresses.CosmicRing, 0 },
+                { ConstantAddresses.Medal, 0 }, { ConstantAddresses.CosmicArts, 0 }, { ConstantAddresses.ShadowArchive, 0 },
+                { ConstantAddresses.ShadowArchivePlus, 0 }, { ConstantAddresses.LuckyRing, 0 }, { ConstantAddresses.FullBloom, 0 },
+                { ConstantAddresses.FullBloomPlus, 0 }, { ConstantAddresses.DrawRing, 0 }, { ConstantAddresses.ExecutivesRing, 0 },
 
-                { (uint)ConstantAddresses.ElvenBandana, 0 }, { (uint)ConstantAddresses.DivineBandana, 0 }, { (uint)ConstantAddresses.PowerBand, 0 },
-                { (uint)ConstantAddresses.BusterBand, 0 }, { (uint)ConstantAddresses.ProtectBelt, 0 }, { (uint)ConstantAddresses.GaiaBelt, 0 },
-                { (uint)ConstantAddresses.CosmicBelt, 0 }, { (uint)ConstantAddresses.ShockCharm, 0 }, { (uint)ConstantAddresses.ShockCharmPlus, 0 },
-                { (uint)ConstantAddresses.FireBangle, 0 }, { (uint)ConstantAddresses.FiraBangle, 0 }, { (uint)ConstantAddresses.FiragaBangle, 0 },
-                { (uint)ConstantAddresses.FiragunBangle, 0 }, { (uint)ConstantAddresses.BlizzardArmlet, 0 }, { (uint)ConstantAddresses.BlizzaraArmlet, 0 },
-                { (uint)ConstantAddresses.BlizzagaArmlet, 0 }, { (uint)ConstantAddresses.BlizzagunArmlet, 0 }, { (uint)ConstantAddresses.ThunderTrinket, 0 },
-                { (uint)ConstantAddresses.ThundaraTrinket, 0 }, { (uint)ConstantAddresses.ThundagaTrinket, 0 }, { (uint)ConstantAddresses.ThundagunTrinket, 0 },
-                { (uint)ConstantAddresses.ShadowAnklet, 0 }, { (uint)ConstantAddresses.DarkAnklet, 0 }, { (uint)ConstantAddresses.MidnightAnklet, 0 },
-                { (uint)ConstantAddresses.ChaosAnklet, 0 }, { (uint)ConstantAddresses.AbasChain, 0 }, { (uint)ConstantAddresses.AegisChain, 0 },
-                { (uint)ConstantAddresses.CosmicChain, 0 }, { (uint)ConstantAddresses.Acrisius, 0 }, { (uint)ConstantAddresses.AcrisiusPlus, 0 },
-                { (uint)ConstantAddresses.PetiteRibbon, 0 }, { (uint)ConstantAddresses.Ribbon, 0 }, { (uint)ConstantAddresses.GrandRibbon, 0 },
-                { (uint)ConstantAddresses.ChampionBelt, 0 },
+                { ConstantAddresses.ElvenBandana, 0 }, { ConstantAddresses.DivineBandana, 0 }, { ConstantAddresses.PowerBand, 0 },
+                { ConstantAddresses.BusterBand, 0 }, { ConstantAddresses.ProtectBelt, 0 }, { ConstantAddresses.GaiaBelt, 0 },
+                { ConstantAddresses.CosmicBelt, 0 }, { ConstantAddresses.ShockCharm, 0 }, { ConstantAddresses.ShockCharmPlus, 0 },
+                { ConstantAddresses.FireBangle, 0 }, { ConstantAddresses.FiraBangle, 0 }, { ConstantAddresses.FiragaBangle, 0 },
+                { ConstantAddresses.FiragunBangle, 0 }, { ConstantAddresses.BlizzardArmlet, 0 }, { ConstantAddresses.BlizzaraArmlet, 0 },
+                { ConstantAddresses.BlizzagaArmlet, 0 }, { ConstantAddresses.BlizzagunArmlet, 0 }, { ConstantAddresses.ThunderTrinket, 0 },
+                { ConstantAddresses.ThundaraTrinket, 0 }, { ConstantAddresses.ThundagaTrinket, 0 }, { ConstantAddresses.ThundagunTrinket, 0 },
+                { ConstantAddresses.ShadowAnklet, 0 }, { ConstantAddresses.DarkAnklet, 0 }, { ConstantAddresses.MidnightAnklet, 0 },
+                { ConstantAddresses.ChaosAnklet, 0 }, { ConstantAddresses.AbasChain, 0 }, { ConstantAddresses.AegisChain, 0 },
+                { ConstantAddresses.CosmicChain, 0 }, { ConstantAddresses.Acrisius, 0 }, { ConstantAddresses.AcrisiusPlus, 0 },
+                { ConstantAddresses.PetiteRibbon, 0 }, { ConstantAddresses.Ribbon, 0 }, { ConstantAddresses.GrandRibbon, 0 },
+                { ConstantAddresses.ChampionBelt, 0 },
 
-                { (uint)ConstantAddresses.KingdomKey, 0 }, { (uint)ConstantAddresses.Oathkeeper, 0 }, { (uint)ConstantAddresses.Oblivion, 0 },
-                { (uint)ConstantAddresses.DetectionSaber, 0 }, { (uint)ConstantAddresses.FrontierOfUltima, 0 }, { (uint)ConstantAddresses.StarSeeker, 0 },
-                { (uint)ConstantAddresses.HiddenDragon, 0 }, { (uint)ConstantAddresses.HerosCrest, 0 }, { (uint)ConstantAddresses.Monochrome, 0 },
-                { (uint)ConstantAddresses.FollowTheWind, 0 }, { (uint)ConstantAddresses.CircleOfLife, 0 }, { (uint)ConstantAddresses.PhotonDebugger, 0 },
-                { (uint)ConstantAddresses.GullWing, 0 }, { (uint)ConstantAddresses.RumblingRose, 0 }, { (uint)ConstantAddresses.GuardianSoul, 0 },
-                { (uint)ConstantAddresses.WishingLamp, 0 }, { (uint)ConstantAddresses.DecisivePumpkin, 0 }, { (uint)ConstantAddresses.SleepingLion, 0 },
-                { (uint)ConstantAddresses.SweetMemories, 0 }, { (uint)ConstantAddresses.MysteriousAbyss, 0 }, { (uint)ConstantAddresses.BondOfFlame, 0 },
-                { (uint)ConstantAddresses.FatalCrest, 0 }, { (uint)ConstantAddresses.Fenrir, 0 }, { (uint)ConstantAddresses.UltimaWeapon, 0 },
-                { (uint)ConstantAddresses.TwoBecomeOne, 0 }, { (uint)ConstantAddresses.WinnersProof, 0 },
+                { ConstantAddresses.KingdomKey, 0 }, { ConstantAddresses.Oathkeeper, 0 }, { ConstantAddresses.Oblivion, 0 },
+                { ConstantAddresses.DetectionSaber, 0 }, { ConstantAddresses.FrontierOfUltima, 0 }, { ConstantAddresses.StarSeeker, 0 },
+                { ConstantAddresses.HiddenDragon, 0 }, { ConstantAddresses.HerosCrest, 0 }, { ConstantAddresses.Monochrome, 0 },
+                { ConstantAddresses.FollowTheWind, 0 }, { ConstantAddresses.CircleOfLife, 0 }, { ConstantAddresses.PhotonDebugger, 0 },
+                { ConstantAddresses.GullWing, 0 }, { ConstantAddresses.RumblingRose, 0 }, { ConstantAddresses.GuardianSoul, 0 },
+                { ConstantAddresses.WishingLamp, 0 }, { ConstantAddresses.DecisivePumpkin, 0 }, { ConstantAddresses.SleepingLion, 0 },
+                { ConstantAddresses.SweetMemories, 0 }, { ConstantAddresses.MysteriousAbyss, 0 }, { ConstantAddresses.BondOfFlame, 0 },
+                { ConstantAddresses.FatalCrest, 0 }, { ConstantAddresses.Fenrir, 0 }, { ConstantAddresses.UltimaWeapon, 0 },
+                { ConstantAddresses.TwoBecomeOne, 0 }, { ConstantAddresses.WinnersProof, 0 },
             };
 
-            private Dictionary<uint, ushort> slots = new Dictionary<uint, ushort>
+            private Dictionary<uint, ushort> slots = new()
             {
-                { (uint)ConstantAddresses.SoraWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraValorWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraMasterWeaponSlot, 0 },
-                { (uint)ConstantAddresses.SoraFinalWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraArmorSlot1, 0 }, { (uint)ConstantAddresses.SoraArmorSlot2, 0 },
-                { (uint)ConstantAddresses.SoraArmorSlot3, 0 }, { (uint)ConstantAddresses.SoraArmorSlot4, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot1, 0 },
-                { (uint)ConstantAddresses.SoraAccessorySlot2, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot3, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot4, 0 },
-                { (uint)ConstantAddresses.SoraItemSlot1, 0 }, { (uint)ConstantAddresses.SoraItemSlot2, 0 }, { (uint)ConstantAddresses.SoraItemSlot3, 0 },
-                { (uint)ConstantAddresses.SoraItemSlot4, 0 }, { (uint)ConstantAddresses.SoraItemSlot5, 0 }, { (uint)ConstantAddresses.SoraItemSlot6, 0 },
-                { (uint)ConstantAddresses.SoraItemSlot7, 0 }, { (uint)ConstantAddresses.SoraItemSlot8, 0 }
+                { ConstantAddresses.SoraWeaponSlot, 0 }, { ConstantAddresses.SoraValorWeaponSlot, 0 }, { ConstantAddresses.SoraMasterWeaponSlot, 0 },
+                { ConstantAddresses.SoraFinalWeaponSlot, 0 }, { ConstantAddresses.SoraArmorSlot1, 0 }, { ConstantAddresses.SoraArmorSlot2, 0 },
+                { ConstantAddresses.SoraArmorSlot3, 0 }, { ConstantAddresses.SoraArmorSlot4, 0 }, { ConstantAddresses.SoraAccessorySlot1, 0 },
+                { ConstantAddresses.SoraAccessorySlot2, 0 }, { ConstantAddresses.SoraAccessorySlot3, 0 }, { ConstantAddresses.SoraAccessorySlot4, 0 },
+                { ConstantAddresses.SoraItemSlot1, 0 }, { ConstantAddresses.SoraItemSlot2, 0 }, { ConstantAddresses.SoraItemSlot3, 0 },
+                { ConstantAddresses.SoraItemSlot4, 0 }, { ConstantAddresses.SoraItemSlot5, 0 }, { ConstantAddresses.SoraItemSlot6, 0 },
+                { ConstantAddresses.SoraItemSlot7, 0 }, { ConstantAddresses.SoraItemSlot8, 0 }
             };
 
             public override void DoEffect(IPS2Connector connector)
@@ -1172,7 +1174,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             public SpringCleaning() : base("Spring Cleaning", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Remove all items, accessories, armor and weapons from Sora's inventory.") { }
 
             // Used to store all the information about what held items Sora had before
-            private Dictionary<uint, byte> items = new Dictionary<uint, byte>
+            private Dictionary<uint, byte> items = new()
             {
                 { (uint)ConstantAddresses.Potion, 0 }, { (uint)ConstantAddresses.HiPotion, 0 }, { (uint)ConstantAddresses.Ether, 0 },
                 { (uint)ConstantAddresses.MegaPotion, 0 }, { (uint)ConstantAddresses.MegaEther, 0 }, { (uint)ConstantAddresses.Elixir, 0 },
@@ -1180,51 +1182,51 @@ namespace CrowdControl.Games.Packs.KH2FM
                 { (uint)ConstantAddresses.HighDriveRecovery, 0 }, { (uint)ConstantAddresses.PowerBoost, 0 }, { (uint)ConstantAddresses.MagicBoost, 0 },
                 { (uint)ConstantAddresses.DefenseBoost, 0 }, { (uint)ConstantAddresses.APBoost, 0 },
 
-                { (uint)ConstantAddresses.AbilityRing, 0 }, { (uint)ConstantAddresses.EngineersRing, 0 }, { (uint)ConstantAddresses.TechniciansRing, 0 },
-                { (uint)ConstantAddresses.ExpertsRing, 0 }, { (uint)ConstantAddresses.SardonyxRing, 0 }, { (uint)ConstantAddresses.TourmalineRing, 0 },
-                { (uint)ConstantAddresses.AquamarineRing, 0 }, { (uint)ConstantAddresses.GarnetRing, 0 }, { (uint)ConstantAddresses.DiamondRing, 0 },
-                { (uint)ConstantAddresses.SilverRing, 0 },{ (uint)ConstantAddresses.GoldRing, 0 }, { (uint)ConstantAddresses.PlatinumRing, 0 },
-                { (uint)ConstantAddresses.MythrilRing, 0 }, { (uint)ConstantAddresses.OrichalcumRing, 0 }, { (uint)ConstantAddresses.MastersRing, 0 },
-                { (uint)ConstantAddresses.MoonAmulet, 0 }, { (uint)ConstantAddresses.StarCharm, 0 }, { (uint)ConstantAddresses.SkillRing, 0 },
-                { (uint)ConstantAddresses.SkillfulRing, 0 }, { (uint)ConstantAddresses.SoldierEarring, 0 }, { (uint)ConstantAddresses.FencerEarring, 0 },
-                { (uint)ConstantAddresses.MageEarring, 0 }, { (uint)ConstantAddresses.SlayerEarring, 0 }, { (uint)ConstantAddresses.CosmicRing, 0 },
-                { (uint)ConstantAddresses.Medal, 0 }, { (uint)ConstantAddresses.CosmicArts, 0 }, { (uint)ConstantAddresses.ShadowArchive, 0 },
-                { (uint)ConstantAddresses.ShadowArchivePlus, 0 }, { (uint)ConstantAddresses.LuckyRing, 0 }, { (uint)ConstantAddresses.FullBloom, 0 },
-                { (uint)ConstantAddresses.FullBloomPlus, 0 }, { (uint)ConstantAddresses.DrawRing, 0 }, { (uint)ConstantAddresses.ExecutivesRing, 0 },
+                { ConstantAddresses.AbilityRing, 0 }, { ConstantAddresses.EngineersRing, 0 }, { ConstantAddresses.TechniciansRing, 0 },
+                { ConstantAddresses.ExpertsRing, 0 }, { ConstantAddresses.SardonyxRing, 0 }, { ConstantAddresses.TourmalineRing, 0 },
+                { ConstantAddresses.AquamarineRing, 0 }, { ConstantAddresses.GarnetRing, 0 }, { ConstantAddresses.DiamondRing, 0 },
+                { ConstantAddresses.SilverRing, 0 },{ ConstantAddresses.GoldRing, 0 }, { ConstantAddresses.PlatinumRing, 0 },
+                { ConstantAddresses.MythrilRing, 0 }, { ConstantAddresses.OrichalcumRing, 0 }, { ConstantAddresses.MastersRing, 0 },
+                { ConstantAddresses.MoonAmulet, 0 }, { ConstantAddresses.StarCharm, 0 }, { ConstantAddresses.SkillRing, 0 },
+                { ConstantAddresses.SkillfulRing, 0 }, { ConstantAddresses.SoldierEarring, 0 }, { ConstantAddresses.FencerEarring, 0 },
+                { ConstantAddresses.MageEarring, 0 }, { ConstantAddresses.SlayerEarring, 0 }, { ConstantAddresses.CosmicRing, 0 },
+                { ConstantAddresses.Medal, 0 }, { ConstantAddresses.CosmicArts, 0 }, { ConstantAddresses.ShadowArchive, 0 },
+                { ConstantAddresses.ShadowArchivePlus, 0 }, { ConstantAddresses.LuckyRing, 0 }, { ConstantAddresses.FullBloom, 0 },
+                { ConstantAddresses.FullBloomPlus, 0 }, { ConstantAddresses.DrawRing, 0 }, { ConstantAddresses.ExecutivesRing, 0 },
 
-                { (uint)ConstantAddresses.ElvenBandana, 0 }, { (uint)ConstantAddresses.DivineBandana, 0 }, { (uint)ConstantAddresses.PowerBand, 0 },
-                { (uint)ConstantAddresses.BusterBand, 0 }, { (uint)ConstantAddresses.ProtectBelt, 0 }, { (uint)ConstantAddresses.GaiaBelt, 0 },
-                { (uint)ConstantAddresses.CosmicBelt, 0 }, { (uint)ConstantAddresses.ShockCharm, 0 }, { (uint)ConstantAddresses.ShockCharmPlus, 0 },
-                { (uint)ConstantAddresses.FireBangle, 0 }, { (uint)ConstantAddresses.FiraBangle, 0 }, { (uint)ConstantAddresses.FiragaBangle, 0 },
-                { (uint)ConstantAddresses.FiragunBangle, 0 }, { (uint)ConstantAddresses.BlizzardArmlet, 0 }, { (uint)ConstantAddresses.BlizzaraArmlet, 0 },
-                { (uint)ConstantAddresses.BlizzagaArmlet, 0 }, { (uint)ConstantAddresses.BlizzagunArmlet, 0 }, { (uint)ConstantAddresses.ThunderTrinket, 0 },
-                { (uint)ConstantAddresses.ThundaraTrinket, 0 }, { (uint)ConstantAddresses.ThundagaTrinket, 0 }, { (uint)ConstantAddresses.ThundagunTrinket, 0 },
-                { (uint)ConstantAddresses.ShadowAnklet, 0 }, { (uint)ConstantAddresses.DarkAnklet, 0 }, { (uint)ConstantAddresses.MidnightAnklet, 0 },
-                { (uint)ConstantAddresses.ChaosAnklet, 0 }, { (uint)ConstantAddresses.AbasChain, 0 }, { (uint)ConstantAddresses.AegisChain, 0 },
-                { (uint)ConstantAddresses.CosmicChain, 0 }, { (uint)ConstantAddresses.Acrisius, 0 }, { (uint)ConstantAddresses.AcrisiusPlus, 0 },
-                { (uint)ConstantAddresses.PetiteRibbon, 0 }, { (uint)ConstantAddresses.Ribbon, 0 }, { (uint)ConstantAddresses.GrandRibbon, 0 },
-                { (uint)ConstantAddresses.ChampionBelt, 0 },
+                { ConstantAddresses.ElvenBandana, 0 }, { ConstantAddresses.DivineBandana, 0 }, { ConstantAddresses.PowerBand, 0 },
+                { ConstantAddresses.BusterBand, 0 }, { ConstantAddresses.ProtectBelt, 0 }, { ConstantAddresses.GaiaBelt, 0 },
+                { ConstantAddresses.CosmicBelt, 0 }, { ConstantAddresses.ShockCharm, 0 }, { ConstantAddresses.ShockCharmPlus, 0 },
+                { ConstantAddresses.FireBangle, 0 }, { ConstantAddresses.FiraBangle, 0 }, { ConstantAddresses.FiragaBangle, 0 },
+                { ConstantAddresses.FiragunBangle, 0 }, { ConstantAddresses.BlizzardArmlet, 0 }, { ConstantAddresses.BlizzaraArmlet, 0 },
+                { ConstantAddresses.BlizzagaArmlet, 0 }, { ConstantAddresses.BlizzagunArmlet, 0 }, { ConstantAddresses.ThunderTrinket, 0 },
+                { ConstantAddresses.ThundaraTrinket, 0 }, { ConstantAddresses.ThundagaTrinket, 0 }, { ConstantAddresses.ThundagunTrinket, 0 },
+                { ConstantAddresses.ShadowAnklet, 0 }, { ConstantAddresses.DarkAnklet, 0 }, { ConstantAddresses.MidnightAnklet, 0 },
+                { ConstantAddresses.ChaosAnklet, 0 }, { ConstantAddresses.AbasChain, 0 }, { ConstantAddresses.AegisChain, 0 },
+                { ConstantAddresses.CosmicChain, 0 }, { ConstantAddresses.Acrisius, 0 }, { ConstantAddresses.AcrisiusPlus, 0 },
+                { ConstantAddresses.PetiteRibbon, 0 }, { ConstantAddresses.Ribbon, 0 }, { ConstantAddresses.GrandRibbon, 0 },
+                { ConstantAddresses.ChampionBelt, 0 },
 
-                { (uint)ConstantAddresses.KingdomKey, 0 }, { (uint)ConstantAddresses.Oathkeeper, 0 }, { (uint)ConstantAddresses.Oblivion, 0 },
-                { (uint)ConstantAddresses.DetectionSaber, 0 }, { (uint)ConstantAddresses.FrontierOfUltima, 0 }, { (uint)ConstantAddresses.StarSeeker, 0 },
-                { (uint)ConstantAddresses.HiddenDragon, 0 }, { (uint)ConstantAddresses.HerosCrest, 0 }, { (uint)ConstantAddresses.Monochrome, 0 },
-                { (uint)ConstantAddresses.FollowTheWind, 0 }, { (uint)ConstantAddresses.CircleOfLife, 0 }, { (uint)ConstantAddresses.PhotonDebugger, 0 },
-                { (uint)ConstantAddresses.GullWing, 0 }, { (uint)ConstantAddresses.RumblingRose, 0 }, { (uint)ConstantAddresses.GuardianSoul, 0 },
-                { (uint)ConstantAddresses.WishingLamp, 0 }, { (uint)ConstantAddresses.DecisivePumpkin, 0 }, { (uint)ConstantAddresses.SleepingLion, 0 },
-                { (uint)ConstantAddresses.SweetMemories, 0 }, { (uint)ConstantAddresses.MysteriousAbyss, 0 }, { (uint)ConstantAddresses.BondOfFlame, 0 },
-                { (uint)ConstantAddresses.FatalCrest, 0 }, { (uint)ConstantAddresses.Fenrir, 0 }, { (uint)ConstantAddresses.UltimaWeapon, 0 },
-                { (uint)ConstantAddresses.TwoBecomeOne, 0 }, { (uint)ConstantAddresses.WinnersProof, 0 },
+                { ConstantAddresses.KingdomKey, 0 }, { ConstantAddresses.Oathkeeper, 0 }, { ConstantAddresses.Oblivion, 0 },
+                { ConstantAddresses.DetectionSaber, 0 }, { ConstantAddresses.FrontierOfUltima, 0 }, { ConstantAddresses.StarSeeker, 0 },
+                { ConstantAddresses.HiddenDragon, 0 }, { ConstantAddresses.HerosCrest, 0 }, { ConstantAddresses.Monochrome, 0 },
+                { ConstantAddresses.FollowTheWind, 0 }, { ConstantAddresses.CircleOfLife, 0 }, { ConstantAddresses.PhotonDebugger, 0 },
+                { ConstantAddresses.GullWing, 0 }, { ConstantAddresses.RumblingRose, 0 }, { ConstantAddresses.GuardianSoul, 0 },
+                { ConstantAddresses.WishingLamp, 0 }, { ConstantAddresses.DecisivePumpkin, 0 }, { ConstantAddresses.SleepingLion, 0 },
+                { ConstantAddresses.SweetMemories, 0 }, { ConstantAddresses.MysteriousAbyss, 0 }, { ConstantAddresses.BondOfFlame, 0 },
+                { ConstantAddresses.FatalCrest, 0 }, { ConstantAddresses.Fenrir, 0 }, { ConstantAddresses.UltimaWeapon, 0 },
+                { ConstantAddresses.TwoBecomeOne, 0 }, { ConstantAddresses.WinnersProof, 0 },
             };
 
-            private Dictionary<uint, ushort> slots = new Dictionary<uint, ushort>
+            private Dictionary<uint, ushort> slots = new()
             {
-                { (uint)ConstantAddresses.SoraWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraValorWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraMasterWeaponSlot, 0 },
-                { (uint)ConstantAddresses.SoraFinalWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraArmorSlot1, 0 }, { (uint)ConstantAddresses.SoraArmorSlot2, 0 },
-                { (uint)ConstantAddresses.SoraArmorSlot3, 0 }, { (uint)ConstantAddresses.SoraArmorSlot4, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot1, 0 },
-                { (uint)ConstantAddresses.SoraAccessorySlot2, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot3, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot4, 0 },
-                { (uint)ConstantAddresses.SoraItemSlot1, 0 }, { (uint)ConstantAddresses.SoraItemSlot2, 0 }, { (uint)ConstantAddresses.SoraItemSlot3, 0 },
-                { (uint)ConstantAddresses.SoraItemSlot4, 0 }, { (uint)ConstantAddresses.SoraItemSlot5, 0 }, { (uint)ConstantAddresses.SoraItemSlot6, 0 },
-                { (uint)ConstantAddresses.SoraItemSlot7, 0 }, { (uint)ConstantAddresses.SoraItemSlot8, 0 }
+                { ConstantAddresses.SoraWeaponSlot, 0 }, { ConstantAddresses.SoraValorWeaponSlot, 0 }, { ConstantAddresses.SoraMasterWeaponSlot, 0 },
+                { ConstantAddresses.SoraFinalWeaponSlot, 0 }, { ConstantAddresses.SoraArmorSlot1, 0 }, { ConstantAddresses.SoraArmorSlot2, 0 },
+                { ConstantAddresses.SoraArmorSlot3, 0 }, { ConstantAddresses.SoraArmorSlot4, 0 }, { ConstantAddresses.SoraAccessorySlot1, 0 },
+                { ConstantAddresses.SoraAccessorySlot2, 0 }, { ConstantAddresses.SoraAccessorySlot3, 0 }, { ConstantAddresses.SoraAccessorySlot4, 0 },
+                { ConstantAddresses.SoraItemSlot1, 0 }, { ConstantAddresses.SoraItemSlot2, 0 }, { ConstantAddresses.SoraItemSlot3, 0 },
+                { ConstantAddresses.SoraItemSlot4, 0 }, { ConstantAddresses.SoraItemSlot5, 0 }, { ConstantAddresses.SoraItemSlot6, 0 },
+                { ConstantAddresses.SoraItemSlot7, 0 }, { ConstantAddresses.SoraItemSlot8, 0 }
             };
 
             public override void DoEffect(IPS2Connector connector)
@@ -1246,8 +1248,8 @@ namespace CrowdControl.Games.Packs.KH2FM
 
                     slots[slotAddress] = slotValue;
 
-                    if (slotAddress != (uint)ConstantAddresses.SoraWeaponSlot && slotAddress != (uint)ConstantAddresses.SoraValorWeaponSlot &&
-                        slotAddress != (uint)ConstantAddresses.SoraMasterWeaponSlot && slotAddress != (uint)ConstantAddresses.SoraFinalWeaponSlot)
+                    if (slotAddress != ConstantAddresses.SoraWeaponSlot && slotAddress != ConstantAddresses.SoraValorWeaponSlot &&
+                        slotAddress != ConstantAddresses.SoraMasterWeaponSlot && slotAddress != ConstantAddresses.SoraFinalWeaponSlot)
                     {
                         connector.Write16LE(slotAddress, ushort.MinValue);
                     }
@@ -1276,13 +1278,13 @@ namespace CrowdControl.Games.Packs.KH2FM
             public SummonChauffeur() : base("Summon Chauffeur", Category.Sora, SubCategory.Summon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give all Drives and Summons to Sora.") { }
 
             // Used to store all the information about what held items Sora had before
-            private Dictionary<uint, byte> drivesSummons = new Dictionary<uint, byte>
+            private Dictionary<uint, byte> drivesSummons = new()
             {
-                { (uint)ConstantAddresses.DriveForms, 0 }, { (uint)ConstantAddresses.DriveLimitForm, 0 },
+                { ConstantAddresses.DriveForms, 0 }, { ConstantAddresses.DriveLimitForm, 0 },
                 //{ (uint)ConstantAddresses.UkeleleBaseballCharm, 0 }, 
-                { (uint)ConstantAddresses.LampFeatherCharm, 0 },
+                { ConstantAddresses.LampFeatherCharm, 0 },
 
-                { (uint)ConstantAddresses.Drive, 0 }, { (uint)ConstantAddresses.MaxDrive, 0 }
+                { ConstantAddresses.Drive, 0 }, { ConstantAddresses.MaxDrive, 0 }
             };
 
             public override void DoEffect(IPS2Connector connector)
@@ -1296,11 +1298,11 @@ namespace CrowdControl.Games.Packs.KH2FM
 
                     if (driveSummon == ConstantAddresses.DriveForms)
                     {
-                        connector.Write8(driveSummon, (byte)127);
+                        connector.Write8(driveSummon, 127);
                     }
                     else if (driveSummon == ConstantAddresses.DriveLimitForm)
                     {
-                        connector.Write8(driveSummon, (byte)8);
+                        connector.Write8(driveSummon, 8);
                     }
                     //else if (driveSummon == ConstantAddresses.UkeleleBaseballCharm)
                     //{
@@ -1308,11 +1310,11 @@ namespace CrowdControl.Games.Packs.KH2FM
                     //}
                     else if (driveSummon == ConstantAddresses.LampFeatherCharm)
                     {
-                        connector.Write8(driveSummon, (byte)48);
+                        connector.Write8(driveSummon, 48);
                     }
                     else
                     {
-                        connector.Write8(driveSummon, (byte)(byte.MaxValue));
+                        connector.Write8(driveSummon, byte.MaxValue);
                     }
                 }
             }
@@ -1333,13 +1335,13 @@ namespace CrowdControl.Games.Packs.KH2FM
             public SummonTrainer() : base("Summon Trainer", Category.Sora, SubCategory.Summon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Remove all Drives and Summons from Sora.") { }
 
             // Used to store all the information about what held items Sora had before
-            private Dictionary<uint, byte> drivesSummons = new Dictionary<uint, byte>
+            private Dictionary<uint, byte> drivesSummons = new()
             {
-                { (uint)ConstantAddresses.DriveForms, 0 }, { (uint)ConstantAddresses.DriveLimitForm, 0 },
+                { ConstantAddresses.DriveForms, 0 }, { ConstantAddresses.DriveLimitForm, 0 },
                 //{ (uint)ConstantAddresses.UkeleleBaseballCharm, 0 }, 
-                { (uint)ConstantAddresses.LampFeatherCharm, 0 },
+                { ConstantAddresses.LampFeatherCharm, 0 },
 
-                { (uint)ConstantAddresses.Drive, 0 }, { (uint)ConstantAddresses.MaxDrive, 0 }
+                { ConstantAddresses.Drive, 0 }, { ConstantAddresses.MaxDrive, 0 }
             };
 
             public override void DoEffect(IPS2Connector connector)
@@ -1375,15 +1377,15 @@ namespace CrowdControl.Games.Packs.KH2FM
                 summonChauffeur = new SummonChauffeur();
             }
 
-            private byte level = 0;
-            private uint hp = 0;
-            private uint maxHp = 0;
-            private uint mp = 0;
-            private uint maxMp = 0;
-            private byte strength = 0;
-            private byte magic = 0;
-            private byte defense = 0;
-            private byte ap = 0;
+            private byte level;
+            private uint hp;
+            private uint maxHp;
+            private uint mp;
+            private uint maxMp;
+            private byte strength;
+            private byte magic;
+            private byte defense;
+            private byte ap;
 
             private ExpertMagician experMagician;
             private Itemaholic itemaholic;
@@ -1443,15 +1445,15 @@ namespace CrowdControl.Games.Packs.KH2FM
                 summonTrainer = new SummonTrainer();
             }
 
-            private byte level = 0;
-            private uint hp = 0;
-            private uint maxHp = 0;
-            private uint mp = 0;
-            private uint maxMp = 0;
-            private byte strength = 0;
-            private byte magic = 0;
-            private byte defense = 0;
-            private byte ap = 0;
+            private byte level;
+            private uint hp;
+            private uint maxHp;
+            private uint mp;
+            private uint maxMp;
+            private byte strength;
+            private byte magic;
+            private byte defense;
+            private byte ap;
 
             private AmnesiacMagician amnesiacMagician;
             private SpringCleaning springCleaning;
