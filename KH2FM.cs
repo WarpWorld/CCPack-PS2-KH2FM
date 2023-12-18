@@ -1,0 +1,2516 @@
+﻿using ConnectorLib;
+using CrowdControl.Common;
+using JetBrains.Annotations;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Timers;
+using ConnectorType = CrowdControl.Common.ConnectorType;
+using Log = CrowdControl.Common.Log;
+
+namespace CrowdControl.Games.Packs.KH2FM
+{
+    [UsedImplicitly]
+    [SuppressMessage("CrowdControl", "All")]
+    public class KH2FMCrowdControlPack : PS2EffectPack
+    {
+
+        public override Game Game => new Game(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
+
+        private KH2FMCrowdControl kh2FMCrowdControl;
+        private List<Effect> effects;
+
+        public override EffectList Effects
+        {
+            get
+            {
+                return effects;
+            }
+        }
+
+        public KH2FMCrowdControlPack(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler)
+        {
+            kh2FMCrowdControl = new KH2FMCrowdControl();
+            effects = kh2FMCrowdControl.Options.Select((x) => new Effect(x.Value.Name, x.Value.Id) { Price = (uint)x.Value.Cost, Description = x.Value.Description }).ToList();
+            Log.Message("Pack initialization complete");
+
+            Timer timer = new Timer(1000.0);
+            timer.Elapsed += (obj, args) => { kh2FMCrowdControl.FixTPose(Connector); };
+
+            timer.Start();
+        }
+
+        protected override bool IsReady(EffectRequest request) => true;
+
+        protected override void StartEffect(EffectRequest request)
+        {
+            if (!IsReady(request))
+            {
+                DelayEffect(request);
+                return;
+            }
+
+            string effectId = FinalCode(request);
+
+
+
+            Log.Message($"Effect Id {effectId}");
+
+            Effect effect = this.Effects[effectId];
+            Option option = kh2FMCrowdControl.Options[effectId];
+
+            option.StartEffect(Connector);
+
+            // TODO Add Effect handling
+        }
+    }
+
+    public abstract class Option
+    {
+        public string Name { get; set; }
+        public string Id { get; set; } // Used primarily to create a unique, formatted ID
+        public string Description { get; set; }
+        public uint Value { get; set; }
+        public int Cost { get; set; }
+        public Category Category { get; set; }
+        public SubCategory SubCategory { get; set; }
+        public bool Active { get; set; } = true;
+        public Func<bool> Method { get; set; }
+        public DataType DataType { get; set; }
+        public ManipulationType ManipulationType { get; set; }
+        public uint Address { get; set; }
+        public int DurationSeconds { get; set; }
+
+        public Option() { }
+        public Option(string name, Category category, SubCategory subCategory, uint value, DataType dataType, ManipulationType manipulationType, uint address, int cost, string description, int durationSeconds = 30)
+        {
+            this.Name = ToString(name, manipulationType, value);
+            this.Id = ToId(category, subCategory, name, manipulationType, value);
+            this.Category = category;
+            this.SubCategory = subCategory;
+            this.Value = value;
+            this.DataType = dataType;
+            this.ManipulationType = manipulationType;
+            this.Address = address;
+            this.Cost = cost;
+            this.Description = description;
+            this.DurationSeconds = durationSeconds;
+        }
+
+        public bool StartEffect(IPS2Connector connector)
+        {
+            try
+            {
+                DoEffect(connector);
+                Task.Delay(DurationSeconds * 1000).ContinueWith(_ =>
+                {
+                    UndoEffect(connector);
+                });
+            }
+            catch (Exception e)
+            {
+                Log.Error(e);
+                return false;
+            }
+            return true;
+        }
+
+        public abstract void DoEffect(IPS2Connector connector);
+
+        public abstract void UndoEffect(IPS2Connector connector);
+
+        public static string ToString(string objectName, ManipulationType type, uint count)
+        {
+            if (type != ManipulationType.Set)
+            {
+                if (count > 1)
+                {
+                    return $"Give {count} {objectName}s";
+                }
+                else if (count == 1)
+                {
+                    return $"Give {objectName}";
+                }
+                else if (count == -1)
+                {
+                    return $"Take {objectName}";
+                }
+                else if (count < -1)
+                {
+                    return $"Take {-count} {objectName}s";
+                }
+            }
+
+            return $"{objectName}";
+        }
+
+        public static string ToId(Category category, SubCategory subCategory, string objectName, ManipulationType manipulationType, uint count)
+        {
+            string modifiedCategory = category.ToString().Replace(" ", "_").Replace("'", "").ToLower();
+            string modifiedSubCategory = subCategory.ToString().Replace(" ", "_").Replace("'", "").ToLower();
+            string modifiedObjectName = objectName.Replace(" ", "_").Replace("'", "").ToLower();
+
+            if (manipulationType != ManipulationType.Set)
+            {
+                if (count > 0)
+                {
+                    return $"give_{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}_{count}";
+                }
+                else if (count < 0)
+                {
+                    return $"take_{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}_{count}";
+                }
+            }
+
+            return $"{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}";
+        }
+    }
+
+    public class KH2FMCrowdControl
+    {
+        public Dictionary<string, Option> Options;
+
+        public KH2FMCrowdControl()
+        {
+            Options = new List<Option>
+            {
+                new OneShotSora(),
+                new HealSora(),
+                new Invulnerability(),
+                new MoneybagsSora(),
+                new RobSora(),
+                new WhoAmI(),
+                new GrowthSpurt(),
+                new SlowgaSora(),
+                //new SpaceJump(),              // For some reason, it worked the first time, but not after
+                new TinyWeapon(),
+                new GiantWeapon(),
+                new Struggling(),
+                new WhoAreThey(),
+                new HostileParty(),
+                new ShuffleShortcuts(),
+                new HastegaSora(),
+                new IAmDarkness(),
+                new BackseatDriver(),
+                new ExpertMagician(),
+                new AmnesiacMagician(),
+                new Itemaholic(),
+                new SpringCleaning(),
+                new SummonChauffeur(),
+                new SummonTrainer(),
+                new HeroSora(),
+                new ZeroSora()
+
+                // Unfinished:
+                // new KillSora(),              // Haven't quite figured out how to call functions in pcsx2
+                // new RandomizeControls(),     // Haven't quite figured out how to switch around buttons in pcsx2
+            }.ToDictionary(option => option.Id, option => option);
+        }
+
+        public void FixTPose(IPS2Connector connector)
+        {
+            connector.Read64LE(0x20341708, out ulong animationStateOffset);
+
+            connector.Read8(0x2033CC38, out byte cameraLock);
+
+            if (cameraLock == 0)
+            {
+                connector.Read16LE(animationStateOffset + 0x2000000C, out ushort animationState);
+
+                if (animationState != 0x8001 && animationState != 0x30)
+                {
+                    connector.Write16LE(animationStateOffset + 0x2000000C, 0x40);
+                }
+            }
+        }
+
+        #region Option Implementations
+        private class OneShotSora : Option
+        {
+            public OneShotSora() : base("1 Shot Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Max and Current HP to 1.") { }
+
+            private uint currentHP = 0;
+            private uint maxHP = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Capture the original data so it can be reset
+                connector.Read32LE(ConstantAddresses.HP, out currentHP);
+                connector.Read32LE(ConstantAddresses.MaxHP, out maxHP);
+
+                connector.Write32LE(ConstantAddresses.HP, 1);
+                connector.Write32LE(ConstantAddresses.MaxHP, 1);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write32LE(ConstantAddresses.HP, currentHP);
+                connector.Write32LE(ConstantAddresses.MaxHP, maxHP);
+            }
+        }
+
+        private class HealSora : Option
+        {
+            public HealSora() : base("Heal Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Heal Sora to Max HP.") { }
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                uint maxHP;
+
+                connector.Read32LE(ConstantAddresses.MaxHP, out maxHP);
+
+                connector.Write32LE(ConstantAddresses.HP, maxHP);
+            }
+
+            public override void UndoEffect(IPS2Connector connector) { }
+        }
+
+        private class Invulnerability : Option
+        {
+            private uint currentHP = 0;
+            private uint maxHP = 0;
+            private Timer? timer;
+
+            public Invulnerability() : base("Invulnerability", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to be invulnerable.") { }
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read32LE(ConstantAddresses.HP, out currentHP);
+                connector.Read32LE(ConstantAddresses.MaxHP, out maxHP);
+
+                // Max out health ever half-second
+                timer = new Timer(500);
+                timer.Elapsed += (_, _) =>
+                {
+                    connector.Write32LE(ConstantAddresses.HP, 999);
+                    connector.Write32LE(ConstantAddresses.MaxHP, 999);
+                };
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write32LE(ConstantAddresses.HP, currentHP);
+                connector.Write32LE(ConstantAddresses.MaxHP, maxHP);
+                // Clear timer
+                if (timer != null)
+                {
+                    timer.Stop();
+                    timer = null;
+                }
+            }
+        }
+
+        private class MoneybagsSora : Option
+        {
+            public MoneybagsSora() : base("Munnybags Sora", Category.Sora, SubCategory.Munny, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora 9999 Munny.", 0) { }
+            public override void DoEffect(IPS2Connector connector)
+            {
+                uint munny;
+
+                connector.Read32LE(ConstantAddresses.Munny, out munny);
+
+                int newAmount = (int)munny + 9999;
+
+                connector.Write32LE(ConstantAddresses.Munny, (uint)newAmount);
+            }
+
+            public override void UndoEffect(IPS2Connector connector) { }
+        }
+
+        private class RobSora : Option
+        {
+            public RobSora() : base("Rob Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Take all of Sora's Munny.", 0) { }
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Write32LE(ConstantAddresses.Munny, 0);
+            }
+
+            public override void UndoEffect(IPS2Connector connector) { }
+        }
+
+        private class WhoAmI : Option
+        {
+            public WhoAmI() : base("Who Am I?", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to a different character.") { }
+
+            private List<int> values = new List<int> {
+                ConstantValues.KH1Sora, ConstantValues.CardSora, ConstantValues.DieSora, ConstantValues.LionSora, ConstantValues.ChristmasSora,
+                ConstantValues.SpaceParanoidsSora, ConstantValues.TimelessRiverSora, ConstantValues.Roxas, ConstantValues.DualwieldRoxas,
+                ConstantValues.MickeyRobed, ConstantValues.Mickey, ConstantValues.Minnie,
+                ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald, ConstantValues.TortoiseGoofy, 
+                // ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
+                // ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy,
+                ConstantValues.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsGoofy,
+                ConstantValues.TimelessRiverDonald, ConstantValues.TimelessRiverGoofy, ConstantValues.Beast, ConstantValues.Mulan, ConstantValues.Ping,
+                ConstantValues.Hercules, ConstantValues.Auron, ConstantValues.Aladdin, ConstantValues.JackSparrow, ConstantValues.HalloweenJack,
+                ConstantValues.ChristmasJack, ConstantValues.Simba, ConstantValues.Tron, ConstantValues.ValorFormSora, ConstantValues.WisdomFormSora,
+                ConstantValues.LimitFormSora, ConstantValues.MasterFormSora, ConstantValues.FinalFormSora, ConstantValues.AntiFormSora
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                ushort randomModel = (ushort)values[new Random().Next(values.Count)];
+
+                connector.Write16LE(ConstantAddresses.Sora, randomModel);
+                connector.Write16LE(ConstantAddresses.LionSora, randomModel);
+                connector.Write16LE(ConstantAddresses.ChristmasSora, randomModel);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, randomModel);
+                connector.Write16LE(ConstantAddresses.TimelessRiverSora, randomModel);
+
+                // TODO Figure out how to swap to Sora
+                //int randomIndex = new Random().Next(values.Count);
+
+                //// Set Valor Form to Random Character so we can activate form
+                //connector.Write16LE(ConstantAddresses.ValorFormSora, (ushort)values[randomIndex]);
+
+                //// NEEDS ADDITIONAL WORK AND TESTING
+
+                //connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
+
+                //connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)ConstantValues.ReactionValor);
+
+                //connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
+
+                //Timer timer = new Timer(250);
+                //timer.Elapsed += (obj, args) =>
+                //{
+                //    connector.Read16LE(ConstantAddresses.ReactionEnable, out ushort value);
+
+                //    if (value == 5) timer.Stop();
+
+                //    connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
+                //};
+                //timer.Start();
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write16LE(ConstantAddresses.Sora, (ushort)ConstantValues.Sora);
+                connector.Write16LE(ConstantAddresses.LionSora, (ushort)ConstantValues.LionSora);
+                connector.Write16LE(ConstantAddresses.ChristmasSora, (ushort)ConstantValues.ChristmasSora);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, (ushort)ConstantValues.SpaceParanoidsSora);
+                connector.Write16LE(ConstantAddresses.TimelessRiverSora, (ushort)ConstantValues.TimelessRiverSora);
+
+                //connector.Write16LE(ConstantAddresses.ValorFormSora, ConstantValues.ValorFormSora);
+            }
+        }
+
+        private class BackseatDriver : Option
+        {
+            public BackseatDriver() : base("Backseat Driver", Category.Sora, SubCategory.Drive, 0, DataType.None, ManipulationType.None, 0x0, 50, "Trigger one of Sora's different form.") { }
+
+            private List<uint> values = new List<uint> {
+                ConstantValues.ReactionValor, ConstantValues.ReactionWisdom, ConstantValues.ReactionLimit,
+                ConstantValues.ReactionMaster, ConstantValues.ReactionFinal, //ConstantValues.ReactionAnti
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Get us out of a Drive first if we are in one
+                connector.WriteFloat(ConstantAddresses.DriveTime, (float)ConstantValues.None);
+                System.Threading.Thread.Sleep(200);
+
+                int randomIndex = new Random().Next(values.Count);
+
+                connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
+
+                connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)values[randomIndex]);
+
+                connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
+
+                Timer timer = new Timer(100);
+                timer.Elapsed += (obj, args) =>
+                {
+                    connector.Read16LE(ConstantAddresses.ReactionEnable, out ushort value);
+
+                    if (value == 5) timer.Stop();
+
+                    connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
+                };
+                timer.Start();
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                // Nothing to do here since they can revert back or wait for the timer to run out
+            }
+        }
+
+        private class WhoAreThey : Option
+        {
+            public WhoAreThey() : base("Who Are They?", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Donald and Goofy to different characters.") { }
+
+            private List<int> values = new List<int> {
+                ConstantValues.Minnie, ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald, ConstantValues.TortoiseGoofy, 
+                //ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
+                //ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy, 
+                ConstantValues.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsGoofy,
+                ConstantValues.TimelessRiverDonald, ConstantValues.TimelessRiverGoofy, ConstantValues.Beast, ConstantValues.Mulan, ConstantValues.Ping,
+                ConstantValues.Hercules, ConstantValues.Auron, ConstantValues.Aladdin, ConstantValues.JackSparrow, ConstantValues.HalloweenJack,
+                ConstantValues.ChristmasJack, ConstantValues.Simba, ConstantValues.Tron, ConstantValues.Riku, ConstantValues.AxelFriend, ConstantValues.LeonFriend,
+                ConstantValues.YuffieFriend, ConstantValues.TifaFriend, ConstantValues.CloudFriend
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                ushort donald = (ushort)values[new Random().Next(values.Count)];
+                ushort goofy = (ushort)values[new Random().Next(values.Count)];
+
+                connector.Write16LE(ConstantAddresses.Donald, donald);
+                connector.Write16LE(ConstantAddresses.BirdDonald, donald);
+                connector.Write16LE(ConstantAddresses.ChristmasDonald, donald);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, donald);
+                connector.Write16LE(ConstantAddresses.TimelessRiverDonald, donald);
+
+
+                connector.Write16LE(ConstantAddresses.Goofy, goofy);
+                connector.Write16LE(ConstantAddresses.TortoiseGoofy, goofy);
+                connector.Write16LE(ConstantAddresses.ChristmasGoofy, goofy);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, goofy);
+                connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, goofy);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write16LE(ConstantAddresses.Donald, ConstantValues.Donald);
+                connector.Write16LE(ConstantAddresses.BirdDonald, ConstantValues.BirdDonald);
+                connector.Write16LE(ConstantAddresses.ChristmasDonald, ConstantValues.ChristmasDonald);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsDonald);
+                connector.Write16LE(ConstantAddresses.TimelessRiverDonald, ConstantValues.TimelessRiverDonald);
+
+
+                connector.Write16LE(ConstantAddresses.Goofy, ConstantValues.Goofy);
+                connector.Write16LE(ConstantAddresses.TortoiseGoofy, ConstantValues.TortoiseGoofy);
+                connector.Write16LE(ConstantAddresses.ChristmasGoofy, ConstantValues.ChristmasGoofy);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, ConstantValues.SpaceParanoidsGoofy);
+                connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, ConstantValues.TimelessRiverGoofy);
+            }
+        }
+
+        private class SlowgaSora : Option
+        {
+            public SlowgaSora() : base("Slowga Sora", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Speed to be super slow.") { }
+
+            private uint speed = 0;
+            private uint speedAlt = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read32LE(ConstantAddresses.Speed, out speed);
+
+                connector.Write32LE(ConstantAddresses.Speed, ConstantValues.SlowDownx2);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write32LE(ConstantAddresses.Speed, speed);
+            }
+        }
+
+        private class HastegaSora : Option
+        {
+            public HastegaSora() : base("Hastega Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Speed to be super fast.") { }
+
+            private uint speed = 0;
+            private uint speedAlt = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read32LE(ConstantAddresses.Speed, out speed);
+
+                connector.Write32LE(ConstantAddresses.Speed, ConstantValues.SpeedUpx2);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write32LE(ConstantAddresses.Speed, speed);
+            }
+        }
+
+        // NEEDS WORK -- DOESNT SEEM TO DO ANYTHING
+        private class SpaceJump : Option
+        {
+            public SpaceJump() : base("Space Jump", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora the ability to Space Jump.") { }
+
+            private uint jump = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Store original jump amount for the reset
+                connector.Read32LE(ConstantAddresses.JumpAmount, out jump);
+
+                connector.Write32LE(ConstantAddresses.JumpAmount, 0);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write32LE(ConstantAddresses.JumpAmount, jump);
+            }
+        }
+
+        private class TinyWeapon : Option
+        {
+            public TinyWeapon() : base("Tiny Weapon", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Weapon size to be tiny.") { }
+
+            private uint currentWeaponSize = 0;
+            private uint currentWeaponSizeAlt = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read32LE(ConstantAddresses.WeaponSize, out currentWeaponSize);
+                // The WeaponSizeAlt address seems to be some sort of transform value for the player character. Modifying it moves the player further away from the camera.
+                //connector.Read32LE(ConstantAddresses.WeaponSizeAlt, out currentWeaponSizeAlt);
+
+                connector.Write32LE(ConstantAddresses.WeaponSize, ConstantValues.TinyWeapon);
+                //connector.Write32LE(ConstantAddresses.WeaponSizeAlt, ConstantValues.TinyWeapon);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write32LE(ConstantAddresses.WeaponSize, currentWeaponSize);
+                //connector.Write32LE(ConstantAddresses.WeaponSizeAlt, currentWeaponSizeAlt);
+            }
+        }
+
+        private class GiantWeapon : Option
+        {
+            public GiantWeapon() : base("Giant Weapon", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Weapon size to be huge.") { }
+
+            private uint currentWeaponSize = 0;
+            private uint currentWeaponSizeAlt = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read32LE(ConstantAddresses.WeaponSize, out currentWeaponSize);
+                //connector.Read32LE(ConstantAddresses.WeaponSizeAlt, out currentWeaponSizeAlt);
+
+                connector.Write32LE(ConstantAddresses.WeaponSize, ConstantValues.BigWeapon);
+                //connector.Write32LE(ConstantAddresses.WeaponSizeAlt, ConstantValues.TinyWeapon);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write32LE(ConstantAddresses.WeaponSize, currentWeaponSize);
+                //connector.Write32LE(ConstantAddresses.WeaponSizeAlt, currentWeaponSizeAlt);
+            }
+        }
+
+        private class Struggling : Option
+        {
+            public Struggling() : base("Struggling", Category.Sora, SubCategory.Weapon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Change Sora's weapon to the Struggle Bat.") { }
+
+            private ushort currentKeyblade = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read16LE(ConstantAddresses.SoraWeaponSlot, out currentKeyblade);
+                connector.Write16LE(ConstantAddresses.SoraWeaponSlot, ConstantValues.StruggleBat);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write16LE(ConstantAddresses.SoraWeaponSlot, currentKeyblade);
+            }
+        }
+
+        private class HostileParty : Option
+        {
+            public HostileParty() : base("Hostile Party", Category.ModelSwap, SubCategory.Enemy, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Donald and Goofy to random enemies.") { }
+
+            private List<int> values = new List<int>
+            {
+                ConstantValues.LeonEnemy, ConstantValues.YuffieEnemy, ConstantValues.TifaEnemy, ConstantValues.CloudEnemy, ConstantValues.Xemnas, ConstantValues.Xigbar,
+                ConstantValues.Xaldin, ConstantValues.Vexen, ConstantValues.VexenAntiSora, ConstantValues.Lexaeus, ConstantValues.Zexion, ConstantValues.Saix,
+                ConstantValues.AxelEnemy, ConstantValues.Demyx, ConstantValues.DemyxWaterClone, ConstantValues.Luxord, ConstantValues.Marluxia, ConstantValues.Larxene,
+                ConstantValues.RoxasEnemy, ConstantValues.RoxasShadow, ConstantValues.Sephiroth, ConstantValues.LingeringWill
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                ushort donald = (ushort)values[new Random().Next(values.Count)];
+                ushort goofy = (ushort)values[new Random().Next(values.Count)];
+
+                connector.Write16LE(ConstantAddresses.Donald, donald);
+                connector.Write16LE(ConstantAddresses.BirdDonald, donald);
+                connector.Write16LE(ConstantAddresses.ChristmasDonald, donald);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, donald);
+                connector.Write16LE(ConstantAddresses.TimelessRiverDonald, donald);
+
+
+                connector.Write16LE(ConstantAddresses.Goofy, goofy);
+                connector.Write16LE(ConstantAddresses.TortoiseGoofy, goofy);
+                connector.Write16LE(ConstantAddresses.ChristmasGoofy, goofy);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, goofy);
+                connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, goofy);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write16LE(ConstantAddresses.Donald, ConstantValues.Donald);
+                connector.Write16LE(ConstantAddresses.BirdDonald, ConstantValues.BirdDonald);
+                connector.Write16LE(ConstantAddresses.ChristmasDonald, ConstantValues.ChristmasDonald);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsDonald);
+                connector.Write16LE(ConstantAddresses.TimelessRiverDonald, ConstantValues.TimelessRiverDonald);
+
+
+                connector.Write16LE(ConstantAddresses.Goofy, ConstantValues.Goofy);
+                connector.Write16LE(ConstantAddresses.TortoiseGoofy, ConstantValues.TortoiseGoofy);
+                connector.Write16LE(ConstantAddresses.ChristmasGoofy, ConstantValues.ChristmasGoofy);
+                connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, ConstantValues.SpaceParanoidsGoofy);
+                connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, ConstantValues.TimelessRiverGoofy);
+            }
+        }
+
+        private class IAmDarkness : Option
+        {
+            public IAmDarkness() : base("I Am Darkness", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Change Sora to Antiform Sora.") { }
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Get us out of a Drive first if we are in one
+                connector.WriteFloat(ConstantAddresses.DriveTime, (float)ConstantValues.None);
+                System.Threading.Thread.Sleep(200);
+
+                connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
+
+                connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)ConstantValues.ReactionAnti);
+
+                connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
+
+                Timer timer = new Timer(100);
+                timer.Elapsed += (obj, args) =>
+                {
+                    connector.Read16LE(ConstantAddresses.ReactionEnable, out ushort value);
+
+                    if (value == 5) timer.Stop();
+
+                    connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
+                };
+                timer.Start();
+
+                //connector.Write16LE(ConstantAddresses.Sora, (ushort)ConstantValues.AntiFormSora);
+                ////connector.Write16LE(ConstantAddresses.HalloweenSora, (ushort)ConstantValues.AntiFormSora);
+                //connector.Write16LE(ConstantAddresses.ChristmasSora, (ushort)ConstantValues.AntiFormSora);
+                //connector.Write16LE(ConstantAddresses.LionSora, (ushort)ConstantValues.AntiFormSora);
+                //connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, (ushort)ConstantValues.AntiFormSora);
+                //connector.Write16LE(ConstantAddresses.TimelessRiverSora, (ushort)ConstantValues.AntiFormSora);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                //connector.Write16LE(ConstantAddresses.Sora, (ushort)ConstantValues.Sora);
+                ////connector.Write16LE(ConstantAddresses.HalloweenSora, (ushort)ConstantValues.HalloweenSora);
+                //connector.Write16LE(ConstantAddresses.ChristmasSora, (ushort)ConstantValues.ChristmasSora);
+                //connector.Write16LE(ConstantAddresses.LionSora, (ushort)ConstantValues.LionSora);
+                //connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, (ushort)ConstantValues.SpaceParanoidsSora);
+                //connector.Write16LE(ConstantAddresses.TimelessRiverSora, (ushort)ConstantValues.TimelessRiverSora);
+            }
+        }
+
+        // NEEDS IMPLEMENTATION
+        private class KillSora : Option
+        {
+            public KillSora() : base("Kill Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Instantly Kill Sora.") { }
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                throw new NotImplementedException();
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        // NEEDS IMPLEMENTATION
+        private class RandomizeControls : Option
+        {
+            public RandomizeControls() : base("Randomize Controls", Category.None, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Randomize the controls to the game.") { }
+
+            private Dictionary<uint, uint> controls = new Dictionary<uint, uint>
+            {
+                //{ ConstantAddresses.Control, 0 },
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                throw new NotImplementedException();
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        private class ShuffleShortcuts : Option
+        {
+            public ShuffleShortcuts() : base("Shuffle Shortcuts", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Shortcuts to random commands.") { }
+
+            private Random random = new Random();
+            private Dictionary<int, Tuple<int, int>> values = new Dictionary<int, Tuple<int, int>>
+            {
+                { ConstantAddresses.Potion, new Tuple<int, int>(ConstantValues.PotionQuickSlotValue, ConstantValues.Potion) }, { ConstantAddresses.HiPotion, new Tuple<int, int>(ConstantValues.HiPotionQuickSlotValue, ConstantValues.HiPotion) },
+                { ConstantAddresses.MegaPotion, new Tuple<int, int>(ConstantValues.MegaPotionQuickSlotValue, ConstantValues.MegaPotion) }, { ConstantAddresses.Ether, new Tuple<int, int>(ConstantValues.EtherQuickSlotValue, ConstantValues.Ether) },
+                { ConstantAddresses.MegaEther, new Tuple<int, int>(ConstantValues.MegaEtherQuickSlotValue, ConstantValues.MegaEther) }, { ConstantAddresses.Elixir, new Tuple<int, int>(ConstantValues.ElixirQuickSlotValue, ConstantValues.Elixir) },
+                { ConstantAddresses.Megalixir, new Tuple<int, int>(ConstantValues.MegalixirQuickSlotValue, ConstantValues.Megalixir) }, { ConstantAddresses.Fire, new Tuple<int, int>(ConstantValues.FireQuickSlotValue, ConstantValues.Fire) },
+                { ConstantAddresses.Blizzard, new Tuple<int, int>(ConstantValues.BlizzardQuickSlotValue, ConstantValues.Blizzard) }, { ConstantAddresses.Thunder, new Tuple<int, int>(ConstantValues.ThunderQuickSlotValue, ConstantValues.Thunder) },
+                { ConstantAddresses.Cure, new Tuple<int, int>(ConstantValues.CureQuickSlotValue, ConstantValues.Cure) }, { ConstantAddresses.Reflect, new Tuple<int, int>(ConstantValues.ReflectQuickSlotValue, ConstantValues.Reflect) },
+                { ConstantAddresses.Magnet, new Tuple<int, int>(ConstantValues.MagnetQuickSlotValue, ConstantValues.Magnet) }
+            };
+
+            private ushort shortcut1 = 0;
+            private ushort shortcut2 = 0;
+            private ushort shortcut3 = 0;
+            private ushort shortcut4 = 0;
+
+            private ulong shortcut1_set = 0;
+            private ulong shortcut2_set = 0;
+            private ulong shortcut3_set = 0;
+            private ulong shortcut4_set = 0;
+
+            private int CheckQuickSlot(IPS2Connector connector, int key, Tuple<int, int> value, int shortcutNumber)
+            {
+                if (key != ConstantAddresses.Fire && key != ConstantAddresses.Blizzard && key != ConstantAddresses.Thunder &&
+                    key != ConstantAddresses.Cure && key != ConstantAddresses.Reflect && key != ConstantAddresses.Magnet)
+                {
+                    ushort itemValue;
+                    connector.Read16LE((ulong)key, out itemValue);
+
+                    connector.Write16LE((ulong)key, (ushort)(itemValue + 1));
+
+                    switch (shortcutNumber)
+                    {
+                        case 1:
+                            shortcut1_set = (ulong)key;
+                            connector.Write16LE(ConstantAddresses.SoraItemSlot1, (ushort)(value.Item2));
+                            break;
+                        case 2:
+                            shortcut2_set = (ulong)key;
+                            connector.Write16LE(ConstantAddresses.SoraItemSlot2, (ushort)(value.Item2));
+                            break;
+                        case 3:
+                            shortcut3_set = (ulong)key;
+                            connector.Write16LE(ConstantAddresses.SoraItemSlot3, (ushort)(value.Item2));
+                            break;
+                        case 4:
+                            shortcut4_set = (ulong)key;
+                            connector.Write16LE(ConstantAddresses.SoraItemSlot4, (ushort)(value.Item2));
+                            break;
+                    }
+
+                    return value.Item1;
+                }
+                else
+                {
+                    byte byteValue;
+                    connector.Read8((ulong)key, out byteValue);
+
+                    if (byteValue == 0)
+                    {
+                        connector.Write8((ulong)key, (byte)value.Item2);
+
+                        switch (shortcutNumber)
+                        {
+                            case 1:
+                                shortcut1_set = (ulong)key;
+                                break;
+                            case 2:
+                                shortcut2_set = (ulong)key;
+                                break;
+                            case 3:
+                                shortcut3_set = (ulong)key;
+                                break;
+                            case 4:
+                                shortcut4_set = (ulong)key;
+                                break;
+                        }
+                    }
+
+                    if (key == ConstantAddresses.Fire)
+                        return ConstantValues.FireQuickSlotValue;
+                    else if (key == ConstantAddresses.Blizzard)
+                        return ConstantValues.BlizzardQuickSlotValue;
+                    else if (key == ConstantAddresses.Thunder)
+                        return ConstantValues.ThunderQuickSlotValue;
+                    else if (key == ConstantAddresses.Cure)
+                        return ConstantValues.CureQuickSlotValue;
+                    else if (key == ConstantAddresses.Reflect)
+                        return ConstantValues.ReflectQuickSlotValue;
+                    else if (key == ConstantAddresses.Magnet)
+                        return ConstantValues.MagnetQuickSlotValue;
+                }
+
+                return ConstantValues.None;
+            }
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Save the values before the shuffle
+                connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot1, out shortcut1);
+                connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot2, out shortcut2);
+                connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot3, out shortcut3);
+                connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot4, out shortcut4);
+
+                int key1 = values.Keys.ToList()[random.Next(values.Keys.Count)];
+                int key2 = values.Keys.ToList()[random.Next(values.Keys.Count)];
+                int key3 = values.Keys.ToList()[random.Next(values.Keys.Count)];
+                int key4 = values.Keys.ToList()[random.Next(values.Keys.Count)];
+
+                int value1 = CheckQuickSlot(connector, key1, values[key1], 1);
+                int value2 = CheckQuickSlot(connector, key2, values[key2], 2);
+                int value3 = CheckQuickSlot(connector, key3, values[key3], 3);
+                int value4 = CheckQuickSlot(connector, key4, values[key4], 4);
+
+                connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot1, (ushort)value1);
+                connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot2, (ushort)value2);
+                connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot3, (ushort)value3);
+                connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot4, (ushort)value4);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot1, shortcut1);
+                connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot2, shortcut2);
+                connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot3, shortcut3);
+                connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot4, shortcut4);
+
+                if (shortcut1_set != 0)
+                {
+                    connector.Write8(shortcut1_set, 0);
+                    shortcut1_set = 0;
+                }
+                if (shortcut2_set != 0)
+                {
+                    connector.Write8(shortcut2_set, 0);
+                    shortcut2_set = 0;
+                }
+                if (shortcut3_set != 0)
+                {
+                    connector.Write8(shortcut3_set, 0);
+                    shortcut3_set = 0;
+                }
+                if (shortcut4_set != 0)
+                {
+                    connector.Write8(shortcut4_set, 0);
+                    shortcut4_set = 0;
+                }
+            }
+        }
+
+        private class GrowthSpurt : Option
+        {
+            public GrowthSpurt() : base("Growth Spurt", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora Max Growth abilities.") { }
+
+            private uint startAddress = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                Log.Message("GrowthSpurt");
+                // Sora has 148 (maybe divided by 2?) slots available for abilities
+                for (uint i = ConstantAddresses.SoraAbilityStart; i < (ConstantAddresses.SoraAbilityStart + 148); i += 2)
+                {
+                    connector.Read8(i, out byte value);
+
+                    if (value != 0) continue;
+
+                    startAddress = i;
+
+                    connector.Write8(startAddress, (byte)ConstantValues.HighJumpMax);
+                    connector.Write8(startAddress + 1, 0x80);
+
+                    connector.Write8(startAddress + 2, (byte)ConstantValues.QuickRunMax);
+                    connector.Write8(startAddress + 3, 0x80);
+
+                    connector.Write8(startAddress + 4, (byte)ConstantValues.DodgeRollMax);
+                    connector.Write8(startAddress + 5, 0x82);
+
+                    connector.Write8(startAddress + 6, (byte)ConstantValues.AerialDodgeMax);
+                    connector.Write8(startAddress + 7, 0x80);
+
+                    connector.Write8(startAddress + 8, (byte)ConstantValues.GlideMax);
+                    connector.Write8(startAddress + 9, 0x80);
+
+                    break;
+                }
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write8(startAddress, 0);
+                connector.Write8(startAddress + 1, 0);
+
+                connector.Write8(startAddress + 2, 0);
+                connector.Write8(startAddress + 3, 0);
+
+                connector.Write8(startAddress + 4, 0);
+                connector.Write8(startAddress + 5, 0);
+
+                connector.Write8(startAddress + 6, 0);
+                connector.Write8(startAddress + 7, 0);
+
+                connector.Write8(startAddress + 8, 0);
+                connector.Write8(startAddress + 9, 0);
+            }
+        }
+
+        private class ExpertMagician : Option
+        {
+            public ExpertMagician() : base("Expert Magician", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora Max Magic and lower the cost of Magic.") { }
+
+            private byte fire = 0;
+            private byte blizzard = 0;
+            private byte thunder = 0;
+            private byte cure = 0;
+            private byte reflect = 0;
+            private byte magnet = 0;
+
+            private byte fireCost = 0;
+            private byte blizzardCost = 0;
+            private byte thunderCost = 0;
+            private byte cureCost = 0;
+            private byte reflectCost = 0;
+            private byte magnetCost = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Save Magic
+                connector.Read8((ulong)ConstantAddresses.Fire, out fire);
+                connector.Read8((ulong)ConstantAddresses.Blizzard, out blizzard);
+                connector.Read8((ulong)ConstantAddresses.Thunder, out thunder);
+                connector.Read8((ulong)ConstantAddresses.Cure, out cure);
+                connector.Read8((ulong)ConstantAddresses.Reflect, out reflect);
+                connector.Read8((ulong)ConstantAddresses.Magnet, out magnet);
+
+                // Write Max Magic
+                connector.Write8((ulong)ConstantAddresses.Fire, (byte)ConstantValues.Firaga);
+                connector.Write8((ulong)ConstantAddresses.Blizzard, (byte)ConstantValues.Blizzaga);
+                connector.Write8((ulong)ConstantAddresses.Thunder, (byte)ConstantValues.Thundaga);
+                connector.Write8((ulong)ConstantAddresses.Cure, (byte)ConstantValues.Curaga);
+                connector.Write8((ulong)ConstantAddresses.Reflect, (byte)ConstantValues.Reflega);
+                connector.Write8((ulong)ConstantAddresses.Magnet, (byte)ConstantValues.Magnega);
+
+                // Save Magic Costs
+                connector.Read8((ulong)ConstantAddresses.FiragaCost, out fireCost);
+                connector.Read8((ulong)ConstantAddresses.BlizzagaCost, out blizzardCost);
+                connector.Read8((ulong)ConstantAddresses.ThundagaCost, out thunderCost);
+                connector.Read8((ulong)ConstantAddresses.CuragaCost, out cureCost);
+                connector.Read8((ulong)ConstantAddresses.ReflegaCost, out reflectCost);
+                connector.Read8((ulong)ConstantAddresses.MagnegaCost, out magnetCost);
+
+                // Write Magic Costs
+                connector.Write8((ulong)ConstantAddresses.FiragaCost, 0x1);
+                connector.Write8((ulong)ConstantAddresses.BlizzagaCost, 0x2);
+                connector.Write8((ulong)ConstantAddresses.ThundagaCost, 0x3);
+                connector.Write8((ulong)ConstantAddresses.CuragaCost, 0x10);
+                connector.Write8((ulong)ConstantAddresses.ReflegaCost, 0x6);
+                connector.Write8((ulong)ConstantAddresses.MagnegaCost, 0x5);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                // Write back saved Magic
+                connector.Write8((ulong)ConstantAddresses.Fire, fire);
+                connector.Write8((ulong)ConstantAddresses.Blizzard, blizzard);
+                connector.Write8((ulong)ConstantAddresses.Thunder, thunder);
+                connector.Write8((ulong)ConstantAddresses.Cure, cure);
+                connector.Write8((ulong)ConstantAddresses.Reflect, reflect);
+                connector.Write8((ulong)ConstantAddresses.Magnet, magnet);
+
+                // Write back saved Magic Costs
+                connector.Write8((ulong)ConstantAddresses.FiragaCost, fireCost);
+                connector.Write8((ulong)ConstantAddresses.BlizzagaCost, blizzardCost);
+                connector.Write8((ulong)ConstantAddresses.ThundagaCost, thunderCost);
+                connector.Write8((ulong)ConstantAddresses.CuragaCost, cureCost);
+                connector.Write8((ulong)ConstantAddresses.ReflegaCost, reflectCost);
+                connector.Write8((ulong)ConstantAddresses.MagnegaCost, magnetCost);
+            }
+        }
+
+        private class AmnesiacMagician : Option
+        {
+            public AmnesiacMagician() : base("Amnesiac Magician", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Take away all of Sora's Magic.") { }
+
+            private byte fire = 0;
+            private byte blizzard = 0;
+            private byte thunder = 0;
+            private byte cure = 0;
+            private byte reflect = 0;
+            private byte magnet = 0;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read8((ulong)ConstantAddresses.Fire, out fire);
+                connector.Read8((ulong)ConstantAddresses.Blizzard, out blizzard);
+                connector.Read8((ulong)ConstantAddresses.Thunder, out thunder);
+                connector.Read8((ulong)ConstantAddresses.Cure, out cure);
+                connector.Read8((ulong)ConstantAddresses.Reflect, out reflect);
+                connector.Read8((ulong)ConstantAddresses.Magnet, out magnet);
+
+                connector.Write8((ulong)ConstantAddresses.Fire, (byte)ConstantValues.None);
+                connector.Write8((ulong)ConstantAddresses.Blizzard, (byte)ConstantValues.None);
+                connector.Write8((ulong)ConstantAddresses.Thunder, (byte)ConstantValues.None);
+                connector.Write8((ulong)ConstantAddresses.Cure, (byte)ConstantValues.None);
+                connector.Write8((ulong)ConstantAddresses.Reflect, (byte)ConstantValues.None);
+                connector.Write8((ulong)ConstantAddresses.Magnet, (byte)ConstantValues.None);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write8((ulong)ConstantAddresses.Fire, fire);
+                connector.Write8((ulong)ConstantAddresses.Blizzard, blizzard);
+                connector.Write8((ulong)ConstantAddresses.Thunder, thunder);
+                connector.Write8((ulong)ConstantAddresses.Cure, cure);
+                connector.Write8((ulong)ConstantAddresses.Reflect, reflect);
+                connector.Write8((ulong)ConstantAddresses.Magnet, magnet);
+            }
+        }
+
+        private class Itemaholic : Option
+        {
+            public Itemaholic() : base("Itemaholic", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Fill Sora's inventory with all items, accessories, armor and weapons.") { }
+
+            // Used to store all the information about what held items Sora had before
+            private Dictionary<uint, byte> items = new Dictionary<uint, byte>
+            {
+                { (uint)ConstantAddresses.Potion, 0 }, { (uint)ConstantAddresses.HiPotion, 0 }, { (uint)ConstantAddresses.Ether, 0 },
+                { (uint)ConstantAddresses.MegaPotion, 0 }, { (uint)ConstantAddresses.MegaEther, 0 }, { (uint)ConstantAddresses.Elixir, 0 },
+                { (uint)ConstantAddresses.Megalixir, 0 }, { (uint)ConstantAddresses.Tent, 0 }, { (uint)ConstantAddresses.DriveRecovery, 0 },
+                { (uint)ConstantAddresses.HighDriveRecovery, 0 }, { (uint)ConstantAddresses.PowerBoost, 0 }, { (uint)ConstantAddresses.MagicBoost, 0 },
+                { (uint)ConstantAddresses.DefenseBoost, 0 }, { (uint)ConstantAddresses.APBoost, 0 },
+
+                { (uint)ConstantAddresses.AbilityRing, 0 }, { (uint)ConstantAddresses.EngineersRing, 0 }, { (uint)ConstantAddresses.TechniciansRing, 0 },
+                { (uint)ConstantAddresses.ExpertsRing, 0 }, { (uint)ConstantAddresses.SardonyxRing, 0 }, { (uint)ConstantAddresses.TourmalineRing, 0 },
+                { (uint)ConstantAddresses.AquamarineRing, 0 }, { (uint)ConstantAddresses.GarnetRing, 0 }, { (uint)ConstantAddresses.DiamondRing, 0 },
+                { (uint)ConstantAddresses.SilverRing, 0 },{ (uint)ConstantAddresses.GoldRing, 0 }, { (uint)ConstantAddresses.PlatinumRing, 0 },
+                { (uint)ConstantAddresses.MythrilRing, 0 }, { (uint)ConstantAddresses.OrichalcumRing, 0 }, { (uint)ConstantAddresses.MastersRing, 0 },
+                { (uint)ConstantAddresses.MoonAmulet, 0 }, { (uint)ConstantAddresses.StarCharm, 0 }, { (uint)ConstantAddresses.SkillRing, 0 },
+                { (uint)ConstantAddresses.SkillfulRing, 0 }, { (uint)ConstantAddresses.SoldierEarring, 0 }, { (uint)ConstantAddresses.FencerEarring, 0 },
+                { (uint)ConstantAddresses.MageEarring, 0 }, { (uint)ConstantAddresses.SlayerEarring, 0 }, { (uint)ConstantAddresses.CosmicRing, 0 },
+                { (uint)ConstantAddresses.Medal, 0 }, { (uint)ConstantAddresses.CosmicArts, 0 }, { (uint)ConstantAddresses.ShadowArchive, 0 },
+                { (uint)ConstantAddresses.ShadowArchivePlus, 0 }, { (uint)ConstantAddresses.LuckyRing, 0 }, { (uint)ConstantAddresses.FullBloom, 0 },
+                { (uint)ConstantAddresses.FullBloomPlus, 0 }, { (uint)ConstantAddresses.DrawRing, 0 }, { (uint)ConstantAddresses.ExecutivesRing, 0 },
+
+                { (uint)ConstantAddresses.ElvenBandana, 0 }, { (uint)ConstantAddresses.DivineBandana, 0 }, { (uint)ConstantAddresses.PowerBand, 0 },
+                { (uint)ConstantAddresses.BusterBand, 0 }, { (uint)ConstantAddresses.ProtectBelt, 0 }, { (uint)ConstantAddresses.GaiaBelt, 0 },
+                { (uint)ConstantAddresses.CosmicBelt, 0 }, { (uint)ConstantAddresses.ShockCharm, 0 }, { (uint)ConstantAddresses.ShockCharmPlus, 0 },
+                { (uint)ConstantAddresses.FireBangle, 0 }, { (uint)ConstantAddresses.FiraBangle, 0 }, { (uint)ConstantAddresses.FiragaBangle, 0 },
+                { (uint)ConstantAddresses.FiragunBangle, 0 }, { (uint)ConstantAddresses.BlizzardArmlet, 0 }, { (uint)ConstantAddresses.BlizzaraArmlet, 0 },
+                { (uint)ConstantAddresses.BlizzagaArmlet, 0 }, { (uint)ConstantAddresses.BlizzagunArmlet, 0 }, { (uint)ConstantAddresses.ThunderTrinket, 0 },
+                { (uint)ConstantAddresses.ThundaraTrinket, 0 }, { (uint)ConstantAddresses.ThundagaTrinket, 0 }, { (uint)ConstantAddresses.ThundagunTrinket, 0 },
+                { (uint)ConstantAddresses.ShadowAnklet, 0 }, { (uint)ConstantAddresses.DarkAnklet, 0 }, { (uint)ConstantAddresses.MidnightAnklet, 0 },
+                { (uint)ConstantAddresses.ChaosAnklet, 0 }, { (uint)ConstantAddresses.AbasChain, 0 }, { (uint)ConstantAddresses.AegisChain, 0 },
+                { (uint)ConstantAddresses.CosmicChain, 0 }, { (uint)ConstantAddresses.Acrisius, 0 }, { (uint)ConstantAddresses.AcrisiusPlus, 0 },
+                { (uint)ConstantAddresses.PetiteRibbon, 0 }, { (uint)ConstantAddresses.Ribbon, 0 }, { (uint)ConstantAddresses.GrandRibbon, 0 },
+                { (uint)ConstantAddresses.ChampionBelt, 0 },
+
+                { (uint)ConstantAddresses.KingdomKey, 0 }, { (uint)ConstantAddresses.Oathkeeper, 0 }, { (uint)ConstantAddresses.Oblivion, 0 },
+                { (uint)ConstantAddresses.DetectionSaber, 0 }, { (uint)ConstantAddresses.FrontierOfUltima, 0 }, { (uint)ConstantAddresses.StarSeeker, 0 },
+                { (uint)ConstantAddresses.HiddenDragon, 0 }, { (uint)ConstantAddresses.HerosCrest, 0 }, { (uint)ConstantAddresses.Monochrome, 0 },
+                { (uint)ConstantAddresses.FollowTheWind, 0 }, { (uint)ConstantAddresses.CircleOfLife, 0 }, { (uint)ConstantAddresses.PhotonDebugger, 0 },
+                { (uint)ConstantAddresses.GullWing, 0 }, { (uint)ConstantAddresses.RumblingRose, 0 }, { (uint)ConstantAddresses.GuardianSoul, 0 },
+                { (uint)ConstantAddresses.WishingLamp, 0 }, { (uint)ConstantAddresses.DecisivePumpkin, 0 }, { (uint)ConstantAddresses.SleepingLion, 0 },
+                { (uint)ConstantAddresses.SweetMemories, 0 }, { (uint)ConstantAddresses.MysteriousAbyss, 0 }, { (uint)ConstantAddresses.BondOfFlame, 0 },
+                { (uint)ConstantAddresses.FatalCrest, 0 }, { (uint)ConstantAddresses.Fenrir, 0 }, { (uint)ConstantAddresses.UltimaWeapon, 0 },
+                { (uint)ConstantAddresses.TwoBecomeOne, 0 }, { (uint)ConstantAddresses.WinnersProof, 0 },
+            };
+
+            private Dictionary<uint, ushort> slots = new Dictionary<uint, ushort>
+            {
+                { (uint)ConstantAddresses.SoraWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraValorWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraMasterWeaponSlot, 0 },
+                { (uint)ConstantAddresses.SoraFinalWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraArmorSlot1, 0 }, { (uint)ConstantAddresses.SoraArmorSlot2, 0 },
+                { (uint)ConstantAddresses.SoraArmorSlot3, 0 }, { (uint)ConstantAddresses.SoraArmorSlot4, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot1, 0 },
+                { (uint)ConstantAddresses.SoraAccessorySlot2, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot3, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot4, 0 },
+                { (uint)ConstantAddresses.SoraItemSlot1, 0 }, { (uint)ConstantAddresses.SoraItemSlot2, 0 }, { (uint)ConstantAddresses.SoraItemSlot3, 0 },
+                { (uint)ConstantAddresses.SoraItemSlot4, 0 }, { (uint)ConstantAddresses.SoraItemSlot5, 0 }, { (uint)ConstantAddresses.SoraItemSlot6, 0 },
+                { (uint)ConstantAddresses.SoraItemSlot7, 0 }, { (uint)ConstantAddresses.SoraItemSlot8, 0 }
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Save all current items, before writing max value to them
+                foreach (var (itemAddress, _) in items)
+                {
+                    connector.Read8(itemAddress, out byte itemCount);
+
+                    items[itemAddress] = itemCount;
+
+                    connector.Write8(itemAddress, byte.MaxValue);
+                }
+
+                // Save all current slots
+                foreach (var (slotAddress, _) in slots)
+                {
+                    connector.Read16LE(slotAddress, out ushort slotValue);
+
+                    slots[slotAddress] = slotValue;
+                }
+            }
+
+            // DO WE WANT TO REMOVE THESE AFTER OR JUST HAVE THIS AS A ONE TIME REDEEM?
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                // Write back all saved items
+                foreach (var (itemAddress, itemCount) in items)
+                {
+                    connector.Write8(itemAddress, itemCount);
+                }
+
+                // Write back all saved slots
+                foreach (var (slotAddress, slotValue) in slots)
+                {
+                    connector.Write16LE(slotAddress, slotValue);
+                }
+            }
+        }
+
+        private class SpringCleaning : Option
+        {
+            public SpringCleaning() : base("Spring Cleaning", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Remove all items, accessories, armor and weapons from Sora's inventory.") { }
+
+            // Used to store all the information about what held items Sora had before
+            private Dictionary<uint, byte> items = new Dictionary<uint, byte>
+            {
+                { (uint)ConstantAddresses.Potion, 0 }, { (uint)ConstantAddresses.HiPotion, 0 }, { (uint)ConstantAddresses.Ether, 0 },
+                { (uint)ConstantAddresses.MegaPotion, 0 }, { (uint)ConstantAddresses.MegaEther, 0 }, { (uint)ConstantAddresses.Elixir, 0 },
+                { (uint)ConstantAddresses.Megalixir, 0 }, { (uint)ConstantAddresses.Tent, 0 }, { (uint)ConstantAddresses.DriveRecovery, 0 },
+                { (uint)ConstantAddresses.HighDriveRecovery, 0 }, { (uint)ConstantAddresses.PowerBoost, 0 }, { (uint)ConstantAddresses.MagicBoost, 0 },
+                { (uint)ConstantAddresses.DefenseBoost, 0 }, { (uint)ConstantAddresses.APBoost, 0 },
+
+                { (uint)ConstantAddresses.AbilityRing, 0 }, { (uint)ConstantAddresses.EngineersRing, 0 }, { (uint)ConstantAddresses.TechniciansRing, 0 },
+                { (uint)ConstantAddresses.ExpertsRing, 0 }, { (uint)ConstantAddresses.SardonyxRing, 0 }, { (uint)ConstantAddresses.TourmalineRing, 0 },
+                { (uint)ConstantAddresses.AquamarineRing, 0 }, { (uint)ConstantAddresses.GarnetRing, 0 }, { (uint)ConstantAddresses.DiamondRing, 0 },
+                { (uint)ConstantAddresses.SilverRing, 0 },{ (uint)ConstantAddresses.GoldRing, 0 }, { (uint)ConstantAddresses.PlatinumRing, 0 },
+                { (uint)ConstantAddresses.MythrilRing, 0 }, { (uint)ConstantAddresses.OrichalcumRing, 0 }, { (uint)ConstantAddresses.MastersRing, 0 },
+                { (uint)ConstantAddresses.MoonAmulet, 0 }, { (uint)ConstantAddresses.StarCharm, 0 }, { (uint)ConstantAddresses.SkillRing, 0 },
+                { (uint)ConstantAddresses.SkillfulRing, 0 }, { (uint)ConstantAddresses.SoldierEarring, 0 }, { (uint)ConstantAddresses.FencerEarring, 0 },
+                { (uint)ConstantAddresses.MageEarring, 0 }, { (uint)ConstantAddresses.SlayerEarring, 0 }, { (uint)ConstantAddresses.CosmicRing, 0 },
+                { (uint)ConstantAddresses.Medal, 0 }, { (uint)ConstantAddresses.CosmicArts, 0 }, { (uint)ConstantAddresses.ShadowArchive, 0 },
+                { (uint)ConstantAddresses.ShadowArchivePlus, 0 }, { (uint)ConstantAddresses.LuckyRing, 0 }, { (uint)ConstantAddresses.FullBloom, 0 },
+                { (uint)ConstantAddresses.FullBloomPlus, 0 }, { (uint)ConstantAddresses.DrawRing, 0 }, { (uint)ConstantAddresses.ExecutivesRing, 0 },
+
+                { (uint)ConstantAddresses.ElvenBandana, 0 }, { (uint)ConstantAddresses.DivineBandana, 0 }, { (uint)ConstantAddresses.PowerBand, 0 },
+                { (uint)ConstantAddresses.BusterBand, 0 }, { (uint)ConstantAddresses.ProtectBelt, 0 }, { (uint)ConstantAddresses.GaiaBelt, 0 },
+                { (uint)ConstantAddresses.CosmicBelt, 0 }, { (uint)ConstantAddresses.ShockCharm, 0 }, { (uint)ConstantAddresses.ShockCharmPlus, 0 },
+                { (uint)ConstantAddresses.FireBangle, 0 }, { (uint)ConstantAddresses.FiraBangle, 0 }, { (uint)ConstantAddresses.FiragaBangle, 0 },
+                { (uint)ConstantAddresses.FiragunBangle, 0 }, { (uint)ConstantAddresses.BlizzardArmlet, 0 }, { (uint)ConstantAddresses.BlizzaraArmlet, 0 },
+                { (uint)ConstantAddresses.BlizzagaArmlet, 0 }, { (uint)ConstantAddresses.BlizzagunArmlet, 0 }, { (uint)ConstantAddresses.ThunderTrinket, 0 },
+                { (uint)ConstantAddresses.ThundaraTrinket, 0 }, { (uint)ConstantAddresses.ThundagaTrinket, 0 }, { (uint)ConstantAddresses.ThundagunTrinket, 0 },
+                { (uint)ConstantAddresses.ShadowAnklet, 0 }, { (uint)ConstantAddresses.DarkAnklet, 0 }, { (uint)ConstantAddresses.MidnightAnklet, 0 },
+                { (uint)ConstantAddresses.ChaosAnklet, 0 }, { (uint)ConstantAddresses.AbasChain, 0 }, { (uint)ConstantAddresses.AegisChain, 0 },
+                { (uint)ConstantAddresses.CosmicChain, 0 }, { (uint)ConstantAddresses.Acrisius, 0 }, { (uint)ConstantAddresses.AcrisiusPlus, 0 },
+                { (uint)ConstantAddresses.PetiteRibbon, 0 }, { (uint)ConstantAddresses.Ribbon, 0 }, { (uint)ConstantAddresses.GrandRibbon, 0 },
+                { (uint)ConstantAddresses.ChampionBelt, 0 },
+
+                { (uint)ConstantAddresses.KingdomKey, 0 }, { (uint)ConstantAddresses.Oathkeeper, 0 }, { (uint)ConstantAddresses.Oblivion, 0 },
+                { (uint)ConstantAddresses.DetectionSaber, 0 }, { (uint)ConstantAddresses.FrontierOfUltima, 0 }, { (uint)ConstantAddresses.StarSeeker, 0 },
+                { (uint)ConstantAddresses.HiddenDragon, 0 }, { (uint)ConstantAddresses.HerosCrest, 0 }, { (uint)ConstantAddresses.Monochrome, 0 },
+                { (uint)ConstantAddresses.FollowTheWind, 0 }, { (uint)ConstantAddresses.CircleOfLife, 0 }, { (uint)ConstantAddresses.PhotonDebugger, 0 },
+                { (uint)ConstantAddresses.GullWing, 0 }, { (uint)ConstantAddresses.RumblingRose, 0 }, { (uint)ConstantAddresses.GuardianSoul, 0 },
+                { (uint)ConstantAddresses.WishingLamp, 0 }, { (uint)ConstantAddresses.DecisivePumpkin, 0 }, { (uint)ConstantAddresses.SleepingLion, 0 },
+                { (uint)ConstantAddresses.SweetMemories, 0 }, { (uint)ConstantAddresses.MysteriousAbyss, 0 }, { (uint)ConstantAddresses.BondOfFlame, 0 },
+                { (uint)ConstantAddresses.FatalCrest, 0 }, { (uint)ConstantAddresses.Fenrir, 0 }, { (uint)ConstantAddresses.UltimaWeapon, 0 },
+                { (uint)ConstantAddresses.TwoBecomeOne, 0 }, { (uint)ConstantAddresses.WinnersProof, 0 },
+            };
+
+            private Dictionary<uint, ushort> slots = new Dictionary<uint, ushort>
+            {
+                { (uint)ConstantAddresses.SoraWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraValorWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraMasterWeaponSlot, 0 },
+                { (uint)ConstantAddresses.SoraFinalWeaponSlot, 0 }, { (uint)ConstantAddresses.SoraArmorSlot1, 0 }, { (uint)ConstantAddresses.SoraArmorSlot2, 0 },
+                { (uint)ConstantAddresses.SoraArmorSlot3, 0 }, { (uint)ConstantAddresses.SoraArmorSlot4, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot1, 0 },
+                { (uint)ConstantAddresses.SoraAccessorySlot2, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot3, 0 }, { (uint)ConstantAddresses.SoraAccessorySlot4, 0 },
+                { (uint)ConstantAddresses.SoraItemSlot1, 0 }, { (uint)ConstantAddresses.SoraItemSlot2, 0 }, { (uint)ConstantAddresses.SoraItemSlot3, 0 },
+                { (uint)ConstantAddresses.SoraItemSlot4, 0 }, { (uint)ConstantAddresses.SoraItemSlot5, 0 }, { (uint)ConstantAddresses.SoraItemSlot6, 0 },
+                { (uint)ConstantAddresses.SoraItemSlot7, 0 }, { (uint)ConstantAddresses.SoraItemSlot8, 0 }
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Save all current items, before writing max value to them
+                foreach (var (itemAddress, _) in items)
+                {
+                    connector.Read8(itemAddress, out byte itemCount);
+
+                    items[itemAddress] = itemCount;
+
+                    connector.Write8(itemAddress, byte.MinValue);
+                }
+
+                // Save all current slots
+                foreach (var (slotAddress, _) in slots)
+                {
+                    connector.Read16LE(slotAddress, out ushort slotValue);
+
+                    slots[slotAddress] = slotValue;
+
+                    if (slotAddress != (uint)ConstantAddresses.SoraWeaponSlot && slotAddress != (uint)ConstantAddresses.SoraValorWeaponSlot &&
+                        slotAddress != (uint)ConstantAddresses.SoraMasterWeaponSlot && slotAddress != (uint)ConstantAddresses.SoraFinalWeaponSlot)
+                    {
+                        connector.Write16LE(slotAddress, ushort.MinValue);
+                    }
+                }
+            }
+
+            // DO WE WANT TO REMOVE THESE AFTER OR JUST HAVE THIS AS A ONE TIME REDEEM?
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                // Write back all saved items
+                foreach (var (itemAddress, itemCount) in items)
+                {
+                    connector.Write8(itemAddress, itemCount);
+                }
+
+                // Write back all saved slots
+                foreach (var (slotAddress, slotValue) in slots)
+                {
+                    connector.Write16LE(slotAddress, slotValue);
+                }
+            }
+        }
+
+        private class SummonChauffeur : Option
+        {
+            public SummonChauffeur() : base("Summon Chauffeur", Category.Sora, SubCategory.Summon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give all Drives and Summons to Sora.") { }
+
+            // Used to store all the information about what held items Sora had before
+            private Dictionary<uint, byte> drivesSummons = new Dictionary<uint, byte>
+            {
+                { (uint)ConstantAddresses.DriveForms, 0 }, { (uint)ConstantAddresses.DriveLimitForm, 0 },
+                //{ (uint)ConstantAddresses.UkeleleBaseballCharm, 0 }, 
+                { (uint)ConstantAddresses.LampFeatherCharm, 0 },
+
+                { (uint)ConstantAddresses.Drive, 0 }, { (uint)ConstantAddresses.MaxDrive, 0 }
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Save all current items, before writing max value to them
+                foreach (var (driveSummon, _) in drivesSummons)
+                {
+                    connector.Read8(driveSummon, out byte value);
+
+                    drivesSummons[driveSummon] = value;
+
+                    if (driveSummon == ConstantAddresses.DriveForms)
+                    {
+                        connector.Write8(driveSummon, (byte)127);
+                    }
+                    else if (driveSummon == ConstantAddresses.DriveLimitForm)
+                    {
+                        connector.Write8(driveSummon, (byte)8);
+                    }
+                    //else if (driveSummon == ConstantAddresses.UkeleleBaseballCharm)
+                    //{
+                    //    connector.Write8(value, 9);
+                    //}
+                    else if (driveSummon == ConstantAddresses.LampFeatherCharm)
+                    {
+                        connector.Write8(driveSummon, (byte)48);
+                    }
+                    else
+                    {
+                        connector.Write8(driveSummon, (byte)(byte.MaxValue));
+                    }
+                }
+            }
+
+            // DO WE WANT TO REMOVE THESE AFTER OR JUST HAVE THIS AS A ONE TIME REDEEM?
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                // Write back all saved items
+                foreach (var (driveSummon, value) in drivesSummons)
+                {
+                    connector.Write8(driveSummon, value);
+                }
+            }
+        }
+
+        private class SummonTrainer : Option
+        {
+            public SummonTrainer() : base("Summon Trainer", Category.Sora, SubCategory.Summon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Remove all Drives and Summons from Sora.") { }
+
+            // Used to store all the information about what held items Sora had before
+            private Dictionary<uint, byte> drivesSummons = new Dictionary<uint, byte>
+            {
+                { (uint)ConstantAddresses.DriveForms, 0 }, { (uint)ConstantAddresses.DriveLimitForm, 0 },
+                //{ (uint)ConstantAddresses.UkeleleBaseballCharm, 0 }, 
+                { (uint)ConstantAddresses.LampFeatherCharm, 0 },
+
+                { (uint)ConstantAddresses.Drive, 0 }, { (uint)ConstantAddresses.MaxDrive, 0 }
+            };
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                // Save all current items, before writing max value to them
+                foreach (var (driveSummon, _) in drivesSummons)
+                {
+                    connector.Read8(driveSummon, out byte value);
+
+                    drivesSummons[driveSummon] = value;
+
+                    connector.Write8(driveSummon, byte.MinValue);
+                }
+            }
+
+            // DO WE WANT TO REMOVE THESE AFTER OR JUST HAVE THIS AS A ONE TIME REDEEM?
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                // Write back all saved items
+                foreach (var (driveSummon, value) in drivesSummons)
+                {
+                    connector.Write8(driveSummon, value);
+                }
+            }
+        }
+
+        private class HeroSora : Option
+        {
+            public HeroSora() : base("Hero Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to HERO mode, including Stats, Items, Magic, Drives and Summons.")
+            {
+                experMagician = new ExpertMagician();
+                itemaholic = new Itemaholic();
+                summonChauffeur = new SummonChauffeur();
+            }
+
+            private byte level = 0;
+            private uint hp = 0;
+            private uint maxHp = 0;
+            private uint mp = 0;
+            private uint maxMp = 0;
+            private byte strength = 0;
+            private byte magic = 0;
+            private byte defense = 0;
+            private byte ap = 0;
+
+            private ExpertMagician experMagician;
+            private Itemaholic itemaholic;
+            private SummonChauffeur summonChauffeur;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read8(ConstantAddresses.Level, out level);
+                connector.Read32LE(ConstantAddresses.HP, out hp);
+                connector.Read32LE(ConstantAddresses.MaxHP, out maxHp);
+                connector.Read32LE(ConstantAddresses.MP, out mp);
+                connector.Read32LE(ConstantAddresses.MaxMP, out maxMp);
+                connector.Read8(ConstantAddresses.Strength, out strength);
+                connector.Read8(ConstantAddresses.Magic, out magic);
+                connector.Read8(ConstantAddresses.Defense, out defense);
+                connector.Read8(ConstantAddresses.AP, out ap);
+
+                connector.Write8(ConstantAddresses.Level, 99);
+                connector.Write32LE(ConstantAddresses.HP, 160);
+                connector.Write32LE(ConstantAddresses.MaxHP, 160);
+                connector.Write32LE(ConstantAddresses.MP, byte.MaxValue);
+                connector.Write32LE(ConstantAddresses.MaxMP, byte.MaxValue);
+                connector.Write8(ConstantAddresses.Strength, byte.MaxValue);
+                connector.Write8(ConstantAddresses.Magic, byte.MaxValue);
+                connector.Write8(ConstantAddresses.Defense, byte.MaxValue);
+                connector.Write8(ConstantAddresses.AP, byte.MaxValue);
+
+                experMagician.DoEffect(connector);
+                itemaholic.DoEffect(connector);
+                summonChauffeur.DoEffect(connector);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write8(ConstantAddresses.Level, level);
+                connector.Write32LE(ConstantAddresses.HP, hp);
+                connector.Write32LE(ConstantAddresses.MaxHP, maxHp);
+                connector.Write32LE(ConstantAddresses.MP, mp);
+                connector.Write32LE(ConstantAddresses.MaxMP, maxMp);
+                connector.Write8(ConstantAddresses.Strength, strength);
+                connector.Write8(ConstantAddresses.Magic, magic);
+                connector.Write8(ConstantAddresses.Defense, defense);
+                connector.Write8(ConstantAddresses.AP, ap);
+
+                experMagician.UndoEffect(connector);
+                itemaholic.UndoEffect(connector);
+                summonChauffeur.UndoEffect(connector);
+            }
+        }
+
+        private class ZeroSora : Option
+        {
+            public ZeroSora() : base("Zero Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to ZERO mode, including Stats, Items, Magic, Drives and Summons.")
+            {
+                amnesiacMagician = new AmnesiacMagician();
+                springCleaning = new SpringCleaning();
+                summonTrainer = new SummonTrainer();
+            }
+
+            private byte level = 0;
+            private uint hp = 0;
+            private uint maxHp = 0;
+            private uint mp = 0;
+            private uint maxMp = 0;
+            private byte strength = 0;
+            private byte magic = 0;
+            private byte defense = 0;
+            private byte ap = 0;
+
+            private AmnesiacMagician amnesiacMagician;
+            private SpringCleaning springCleaning;
+            private SummonTrainer summonTrainer;
+
+            public override void DoEffect(IPS2Connector connector)
+            {
+                connector.Read8(ConstantAddresses.Level, out level);
+                connector.Read32LE(ConstantAddresses.HP, out hp);
+                connector.Read32LE(ConstantAddresses.MaxHP, out maxHp);
+                connector.Read32LE(ConstantAddresses.MP, out mp);
+                connector.Read32LE(ConstantAddresses.MaxMP, out maxMp);
+                connector.Read8(ConstantAddresses.Strength, out strength);
+                connector.Read8(ConstantAddresses.Magic, out magic);
+                connector.Read8(ConstantAddresses.Defense, out defense);
+                connector.Read8(ConstantAddresses.AP, out ap);
+
+                connector.Write8(ConstantAddresses.Level, byte.MinValue + 1);
+                connector.Write32LE(ConstantAddresses.HP, uint.MinValue + 1);
+                connector.Write32LE(ConstantAddresses.MaxHP, uint.MinValue + 1);
+                connector.Write32LE(ConstantAddresses.MP, uint.MinValue);
+                connector.Write32LE(ConstantAddresses.MaxMP, uint.MinValue);
+                connector.Write8(ConstantAddresses.Strength, byte.MinValue);
+                connector.Write8(ConstantAddresses.Magic, byte.MinValue);
+                connector.Write8(ConstantAddresses.Defense, byte.MinValue);
+                connector.Write8(ConstantAddresses.AP, byte.MinValue);
+
+                amnesiacMagician.DoEffect(connector);
+                springCleaning.DoEffect(connector);
+                summonTrainer.DoEffect(connector);
+            }
+
+            public override void UndoEffect(IPS2Connector connector)
+            {
+                connector.Write8(ConstantAddresses.Level, level);
+                connector.Write32LE(ConstantAddresses.HP, hp);
+                connector.Write32LE(ConstantAddresses.MaxHP, maxHp);
+                connector.Write32LE(ConstantAddresses.MP, mp);
+                connector.Write32LE(ConstantAddresses.MaxMP, maxMp);
+                connector.Write8(ConstantAddresses.Strength, strength);
+                connector.Write8(ConstantAddresses.Magic, magic);
+                connector.Write8(ConstantAddresses.Defense, defense);
+                connector.Write8(ConstantAddresses.AP, ap);
+
+                amnesiacMagician.UndoEffect(connector);
+                springCleaning.UndoEffect(connector);
+                summonTrainer.UndoEffect(connector);
+            }
+        }
+        #endregion
+    }
+
+    #region Enums
+    public enum Category
+    {
+        None = 0,
+
+        Enemy = 1,
+        Environment = 2,
+        Item = 3,
+        ModelSwap = 4,
+        Party = 5,
+        Sora = 6,
+        Equipment = 6,
+    }
+
+    public enum DataType
+    {
+        None = 0,
+
+        Binary = 1,
+        Byte = 2,
+        TwoBytes = 3,
+        FourBytes = 4,
+        EightBytes = 5,
+        Float = 6,
+        Double = 7,
+        String = 8,
+        ByteArray = 9
+    }
+
+    public enum ManipulationType
+    {
+        None = 0,
+
+        Set = 1,
+        Add = 2,
+        Subtract = 3
+    }
+
+    public enum SubCategory
+    {
+        None = 0,
+
+        Accessory = 1,
+        Armor = 2,
+        BaseItem = 3,
+        Munny = 4,
+        Weapon = 5, // Weapon to be used for Party Members - Moved down to be more specific - Keyblade, Staff, Shield, Weapon (Party)
+        Ability = 6,
+        Drive = 7,
+        QuickMenu = 8,
+        Magic = 9,
+        Stats = 10,
+        Summon = 11,
+        Keyblade = 12,
+        Staff = 13,
+        Shield = 14,
+        Friend = 15,
+        Enemy = 16
+    }
+    #endregion Enums
+
+    #region Constants
+    public static class ConstantAddresses
+    {
+        public static uint None = 0x0;
+
+        #region Munny
+        public static uint Munny = 0x2032DF70;
+        #endregion Munny
+
+        #region Accessory
+        public static uint AbilityRing = 0x2032F0B7;
+        public static uint EngineersRing = 0x2032F0B8;
+        public static uint TechniciansRing = 0x2032F0B9;
+        public static uint ExpertsRing = 0x2032F0BA;
+        public static uint SardonyxRing = 0x2032F0BB;
+        public static uint TourmalineRing = 0x2032F0BC;
+        public static uint AquamarineRing = 0x2032F0BD;
+        public static uint GarnetRing = 0x2032F0BE;
+        public static uint DiamondRing = 0x2032F0BF;
+        public static uint SilverRing = 0x2032F0C0;
+        public static uint GoldRing = 0x2032F0C1;
+        public static uint PlatinumRing = 0x2032F0C2;
+        public static uint MythrilRing = 0x2032F0C3;
+        public static uint OrichalcumRing = 0x2032F0CA;
+        public static uint MastersRing = 0x2032F0CB;
+        public static uint MoonAmulet = 0x2032F0CC;
+        public static uint StarCharm = 0x2032F0CE;
+        public static uint SkillRing = 0x2032F0CF;
+        public static uint SkillfulRing = 0x2032F0D0;
+        public static uint SoldierEarring = 0x2032F0D6;
+        public static uint FencerEarring = 0x2032F0D7;
+        public static uint MageEarring = 0x2032F0D8;
+        public static uint SlayerEarring = 0x2032F0DC;
+        public static uint CosmicRing = 0x2032F0DD;
+        public static uint Medal = 0x2032F0E0;
+        public static uint CosmicArts = 0x2032F0E1;
+        public static uint ShadowArchive = 0x2032F0E2;
+        public static uint ShadowArchivePlus = 0x2032F0E7;
+        public static uint LuckyRing = 0x2032F0E8;
+        public static uint FullBloom = 0x2032F0E9;
+        public static uint FullBloomPlus = 0x2032F0EB;
+        public static uint DrawRing = 0x2032F0EA;
+        public static uint ExecutivesRing = 0x2032F1E5;
+        #endregion Accessory
+
+        #region Armor
+        public static uint ElvenBandana = 0x2032F0EC;
+        public static uint DivineBandana = 0x2032F0ED;
+        public static uint PowerBand = 0x2032F0EE;
+        public static uint BusterBand = 0x2032F0F6;
+        public static uint ProtectBelt = 0x2032F0F7;
+        public static uint GaiaBelt = 0x2032F0FA;
+        public static uint CosmicBelt = 0x2032F101;
+        public static uint ShockCharm = 0x2032F102;
+        public static uint ShockCharmPlus = 0x2032F103;
+        public static uint FireBangle = 0x2032F107;
+        public static uint FiraBangle = 0x2032F108;
+        public static uint FiragaBangle = 0x2032F109;
+        public static uint FiragunBangle = 0x2032F10A;
+        public static uint BlizzardArmlet = 0x2032F10C;
+        public static uint BlizzaraArmlet = 0x2032F10D;
+        public static uint BlizzagaArmlet = 0x2032F10E;
+        public static uint BlizzagunArmlet = 0x2032F10F;
+        public static uint ThunderTrinket = 0x2032F112;
+        public static uint ThundaraTrinket = 0x2032F113;
+        public static uint ThundagaTrinket = 0x2032F114;
+        public static uint ThundagunTrinket = 0x2032F115;
+        public static uint ShadowAnklet = 0x2032F129;
+        public static uint DarkAnklet = 0x2032F12B;
+        public static uint MidnightAnklet = 0x2032F12C;
+        public static uint ChaosAnklet = 0x2032F12D;
+        public static uint AbasChain = 0x2032F12F;
+        public static uint AegisChain = 0x2032F130;
+        public static uint CosmicChain = 0x2032F136;
+        public static uint Acrisius = 0x2032F131;
+        public static uint AcrisiusPlus = 0x2032F135;
+        public static uint PetiteRibbon = 0x2032F134;
+        public static uint Ribbon = 0x2032F132;
+        public static uint GrandRibbon = 0x2032F104;
+        public static uint ChampionBelt = 0x2032F133;
+        #endregion Armor
+
+        #region Base Item
+        public static int Potion = 0x2032F0B0;
+        public static int HiPotion = 0x2032F0B1;
+        public static int Ether = 0x2032F0B2;
+        public static int Elixir = 0x2032F0B3;
+        public static int MegaPotion = 0x2032F0B4;
+        public static int MegaEther = 0x2032F0B5;
+        public static int Megalixir = 0x2032F0B6;
+        public static int Tent = 0x2032F111;
+        public static int DriveRecovery = 0x2032F194;
+        public static int HighDriveRecovery = 0x2032F195;
+        public static int PowerBoost = 0x2032F196;
+        public static int MagicBoost = 0x2032F197;
+        public static int DefenseBoost = 0x2032F198;
+        public static int APBoost = 0x2032F199;
+        #endregion Base Item
+
+        #region Keyblade
+        public static uint KingdomKey = 0x2032F0D1;
+        public static uint Oathkeeper = 0x2032F0D2;
+        public static uint Oblivion = 0x2032F0D3;
+        public static uint DetectionSaber = 0x2032F0D4;
+        public static uint FrontierOfUltima = 0x2032F0D5;
+        public static uint StarSeeker = 0x2032F1AB;
+        public static uint HiddenDragon = 0x2032F1AC;
+        public static uint HerosCrest = 0x2032F1AF;
+        public static uint Monochrome = 0x2032F1B0;
+        public static uint FollowTheWind = 0x2032F1B1;
+        public static uint CircleOfLife = 0x2032F1B2;
+        public static uint PhotonDebugger = 0x2032F1B3;
+        public static uint GullWing = 0x2032F1B4;
+        public static uint RumblingRose = 0x2032F1B5;
+        public static uint GuardianSoul = 0x2032F1B6;
+        public static uint WishingLamp = 0x2032F1B7;
+        public static uint DecisivePumpkin = 0x2032F1B8;
+        public static uint SleepingLion = 0x2032F1B9;
+        public static uint SweetMemories = 0x2032F1BA;
+        public static uint MysteriousAbyss = 0x2032F1BB;
+        public static uint BondOfFlame = 0x2032F1BC;
+        public static uint FatalCrest = 0x2032F1BD;
+        public static uint Fenrir = 0x2032F1BE;
+        public static uint UltimaWeapon = 0x2032F1BF;
+        public static uint TwoBecomeOne = 0x2032F1C8;
+        public static uint WinnersProof = 0x2032F1C9;
+        #endregion Keyblade
+
+        #region Staff
+        public static uint MagesStaff = 0x2032F0F3;
+        public static uint HammerStaff = 0x2032F11F;
+        public static uint VictoryBell = 0x2032F120;
+        public static uint MeteorStaff = 0x2032F121;
+        public static uint CometStaff = 0x2032F122;
+        public static uint LordsBroom = 0x2032F123;
+        public static uint WisdomWand = 0x2032F124;
+        public static uint RisingDragon = 0x2032F125;
+        public static uint NobodyLance = 0x2032F126;
+        public static uint ShamansRelic = 0x2032F127;
+        public static uint ShamansRelicPlus = 0x2032F1E6;
+        public static uint StaffOfDetection = 0x2032F12A;
+        public static uint SaveTheQueen = 0x2032F12D;
+        public static uint SaveTheQueenPlus = 0x2032F1C2;
+        public static uint Centurion = 0x2032F1CA;
+        public static uint CenturionPlus = 0x2032F1CB;
+        public static uint PlainMushroom = 0x2032F1CC;
+        public static uint PlainMushroomPlus = 0x2032F1CD;
+        public static uint PreciousMushroom = 0x2032F1CE;
+        public static uint PreciousMushroomPlus = 0x2032F1CF;
+        public static uint PremiumMushroom = 0x2032F1D0;
+        #endregion Staff
+
+        #region Shield
+        public static uint KnightsShield = 0x2032F0D9;
+        public static uint DetectionShield = 0x2032F0DA;
+        public static uint AdamantShield = 0x2032F116;
+        public static uint ChainGear = 0x2032F117;
+        public static uint OgreShield = 0x2032F118;
+        public static uint FallingStar = 0x2032F119;
+        public static uint Dreamcloud = 0x2032F11A;
+        public static uint KnightDefender = 0x2032F11B;
+        public static uint GenjiShield = 0x2032F11C;
+        public static uint AkashicRecord = 0x2032F11D;
+        public static uint AkashicRecordPlus = 0x2032F1E7;
+        public static uint NobodyGuard = 0x2032F11E;
+        public static uint SaveTheKing = 0x2032F1AE;
+        public static uint SaveTheKingPlus = 0x2032F1C3;
+        public static uint FrozenPride = 0x2032F1D1;
+        public static uint FrozenPridePlus = 0x2032F1D2;
+        public static uint JoyousMushroom = 0x2032F1D3;
+        public static uint JoyousMushroomPlus = 0x2032F1D4;
+        public static uint MajesticMushroom = 0x2032F1D5;
+        public static uint MajesticMushroomPlus = 0x2032F1D6;
+        public static uint UltimateMushroom = 0x2032F1D7;
+        #endregion Shield
+
+        #region Magic
+        public static int Fire = 0x2032F0C4;
+        public static int Blizzard = 0x2032F0C5;
+        public static int Thunder = 0x2032F0C6;
+        public static int Cure = 0x2032F0C7;
+        public static int Magnet = 0x2032F0FF;
+        public static int Reflect = 0x2032F100;
+        #endregion Magic
+
+        #region MP Cost
+        public static uint FireCost = 0x21CCBCE0;
+        public static uint FiraCost = 0x21CCC8E0;
+        public static uint FiragaCost = 0x21CCC910;
+        public static uint BlizzardCost = 0x21CCBD40;
+        public static uint BlizzaraCost = 0x21CCC940;
+        public static uint BlizzagaCost = 0x21CCC970;
+        public static uint ThunderCost = 0x21CCBD10;
+        public static uint ThundaraCost = 0x21CCC9A0;
+        public static uint ThundagaCost = 0x21CCC9D0;
+        public static uint CureCost = 0x21CCBD70;
+        public static uint CuraCost = 0x21CCCA00;
+        public static uint CuragaCost = 0x21CCCA30;
+        public static uint MagnetCost = 0x21CCD240;
+        public static uint MagneraCost = 0x21CCD270;
+        public static uint MagnegaCost = 0x21CCD2A0;
+        public static uint ReflectCost = 0x21CCD2D0;
+        public static uint RefleraCost = 0x21CCD300;
+        public static uint ReflegaCost = 0x21CCD330;
+
+        public static uint TrinityLimitCost = 0x21CD0B40;
+        public static uint DuckFlareCost = 0x21CCF160;
+        public static uint CometCost = 0x21CCE620;
+        public static uint WhirliGoofCost = 0x21CCE110;
+        public static uint KnocksmashCost = 0x21CCF040;
+        public static uint RedRocketCost = 0x21CCCC40;
+        public static uint TwinHowlCost = 0x21CCC130;
+        public static uint BushidoCost = 0x21CCC2B0;
+        public static uint BluffCost = 0x21CCF3A0;
+        public static uint DanceCallCost = 0x21CCFCA0;
+        public static uint SpeedsterCost = 0x21CCF280;
+        public static uint WildcatCost = 0x21CCF730;
+        public static uint SetupCost = 0x21CCFE80;
+        public static uint SessionCost = 0x21CD1AD0;
+
+        public static uint StrikeRaidCost = 0x21CD3150;
+        public static uint SonicBladeCost = 0x21CD3030;
+        public static uint RagnarokCost = 0x21CD2F10;
+        public static uint ArsArcanumCost = 0x21CD30C0;
+        #endregion MP Cost
+
+        #region Characters
+        public static uint Sora = 0x21CE0B68;
+        public static uint LionSora = 0x21CE1250;
+        public static uint TimelessRiverSora = 0x21CE121C;
+        public static uint HalloweenSora = 0x21CE0FAC;
+        public static uint ChristmasSora = 0x21CE0FE0;
+        public static uint SpaceParanoidsSora = 0x21CE11E8;
+
+        public static uint ValorFormSora = 0x21CE0B70;
+        public static uint WisdomFormSora = 0x21CE0B72;
+        public static uint LimitFormSora = 0x21CE0B74;
+        public static uint MasterFormSora = 0x21CE0B76;
+        public static uint FinalFormSora = 0x21CE0B78;
+        public static uint AntiFormSora = 0x21CE0B7A;
+
+        public static uint Donald = 0x21CE0B6A;
+        public static uint BirdDonald = 0x21CE1252;
+        public static uint TimelessRiverDonald = 0x21CE121E;
+        public static uint HalloweenDonald = 0x21CE0FAE;
+        public static uint ChristmasDonald = 0x21CE0FE2;
+        public static uint SpaceParanoidsDonald = 0x21CE11EA;
+
+        public static uint Goofy = 0x21CE0B6C;
+        public static uint TortoiseGoofy = 0x21CE1254;
+        public static uint TimelessRiverGoofy = 0x21CE1220;
+        public static uint HalloweenGoofy = 0x21CE0FB0;
+        public static uint ChristmasGoofy = 0x21CE0FE4;
+        public static uint SpaceParanoidsGoofy = 0x21CE11EC;
+
+        public static uint Mulan = 0x21CE10B6;
+        public static uint Beast = 0x21CE104E;
+        public static uint Auron = 0x21CE0EE2;
+        public static uint CaptainJackSparrow = 0x21CE0DDE;
+        public static uint Aladdin = 0x21CE0F7E;
+        public static uint JackSkellington = 0x21CE101A;
+        public static uint Simba = 0x21CE1256;
+        public static uint Tron = 0x21CE11EE;
+        public static uint Riku = 0x21CE10EA;
+        #endregion Characters
+
+        #region Stats
+        public static uint Level = 0x2032E02F;
+        public static uint HP = 0x21C6C750;
+        public static uint MaxHP = 0x21C6C754;
+
+        public static uint Invincibility_1 = 0x200F7000;
+        public static uint Invincibility_2 = 0x200F7004;
+        public static uint Invincibility_3 = 0x200F7008;
+        public static uint Invincibility_4 = 0x201666F8;
+
+        public static uint MP = 0x21C6C8D0;
+        public static uint MaxMP = 0x21C6C8D4;
+        public static uint RechargeRate = 0x21C6C90C;
+        public static uint Strength = 0x21C6C8D8;
+        public static uint Magic = 0x21C6C8DA;
+        public static uint Defense = 0x21C6C8DC;
+        public static uint AP = 0x2032E028;
+        public static uint StrengthBoostStat = 0x2032E029;
+        public static uint MagicBoostStat = 0x2032E02A;
+        public static uint DefenseBoostStat = 0x2032E02B;
+        public static uint APBoostStat = 0x2032E028;
+        public static uint Speed = 0x21CE2FE4;
+        #endregion Stats
+
+        #region Summons
+        // This shares the same as our Drive Forms - 1 is Ukelele and 8 is Baseball
+        //public static uint UkeleleBaseballCharm = 0x2032F1F0;
+        public static uint LampFeatherCharm = 0x2032F1F4;
+        #endregion Summons
+
+        #region Drives
+        public static uint Drive = 0x21C6C901;
+        public static uint MaxDrive = 0x21C6C902;
+        public static uint DriveTime = 0x21C6C904;
+        public static uint DriveAvailable = 0x20351EB8;
+        public static uint DriveForms = 0x2032F1F0;
+        public static uint DriveLimitForm = 0x2032F1FA;
+
+        public static uint ReactionPopup = 0x21C5FF48;
+        public static uint ReactionOption = 0x21C5FF4E;
+        public static uint ReactionEnable = 0x21C5FF51;
+        public static uint ButtonPress = 0x2034D45D;
+        #endregion Drives
+
+        #region Equipment
+        public static uint SoraWeaponSlot = 0x2032E020;
+        public static uint SoraValorWeaponSlot = 0x2032EE24;
+        public static uint SoraMasterWeaponSlot = 0x2032EECC;
+        public static uint SoraFinalWeaponSlot = 0x2032EF04;
+        public static uint DonaldWeaponSlot = 0x2032E134;
+        public static uint GoofyWeaponSlot = 0x2032E248;
+
+
+        public static uint SoraArmorSlotCount = 0x2032E030;
+        public static uint SoraArmorSlot1 = 0x2032E034;
+        public static uint SoraArmorSlot2 = 0x2032E036;
+        public static uint SoraArmorSlot3 = 0x2032E038;
+        public static uint SoraArmorSlot4 = 0x2032E03A;
+        public static uint SoraAccessorySlotCount = 0x2032E031;
+        public static uint SoraAccessorySlot1 = 0x2032E044;
+        public static uint SoraAccessorySlot2 = 0x2032E046;
+        public static uint SoraAccessorySlot3 = 0x2032E048;
+        public static uint SoraAccessorySlot4 = 0x2032E04A;
+        public static uint SoraItemSlotCount = 0x2032E032;
+        public static uint SoraItemSlot1 = 0x2032E054;
+        public static uint SoraItemSlot2 = 0x2032E056;
+        public static uint SoraItemSlot3 = 0x2032E058;
+        public static uint SoraItemSlot4 = 0x2032E05A;
+        public static uint SoraItemSlot5 = 0x2032E05C;
+        public static uint SoraItemSlot6 = 0x2032E05E;
+        public static uint SoraItemSlot7 = 0x2032E060;
+        public static uint SoraItemSlot8 = 0x2032E062;
+        public static uint SoraQuickMenuSlot1 = 0x2032F228;
+        public static uint SoraQuickMenuSlot2 = 0x2032F22A;
+        public static uint SoraQuickMenuSlot3 = 0x2032F22C;
+        public static uint SoraQuickMenuSlot4 = 0x2032F22E;
+        public static uint SoraAbilityStart = 0x2032E074;
+
+        public static uint DonaldArmorSlotCount = 0x2032E144;
+        public static uint DonaldArmorSlot1 = 0x2032E148;
+        public static uint DonaldArmorSlot2 = 0x2032E14A;
+        public static uint DonaldAccessorySlotCount = 0x2032E145;
+        public static uint DonaldAccessorySlot1 = 0x2032E158;
+        public static uint DonaldAccessorySlot2 = 0x2032E15A;
+        public static uint DonaldAccessorySlot3 = 0x2032E15C;
+        public static uint DonaldItemSlotCount = 0x2032E146;
+        public static uint DonaldItemSlot1 = 0x2032E168;
+        public static uint DonaldItemSlot2 = 0x2032E16A;
+        public static uint DonaldAbilityStart = 0x2032E188;
+
+        public static uint GoofyArmorSlotCount = 0x2032E258;
+        public static uint GoofyArmorSlot1 = 0x2032E25C;
+        public static uint GoofyArmorSlot2 = 0x2032E25E;
+        public static uint GoofyArmorSlot3 = 0x2032E260;
+        public static uint GoofyAccessorySlotCount = 0x2032E259;
+        public static uint GoofyAccessorySlot1 = 0x2032E26C;
+        public static uint GoofyAccessorySlot2 = 0x2032E26E;
+        public static uint GoofyItemSlotCount = 0x2032E25A;
+        public static uint GoofyItemSlot1 = 0x2032E27C;
+        public static uint GoofyItemSlot2 = 0x2032E27E;
+        public static uint GoofyItemSlot3 = 0x2032E280;
+        public static uint GoofyItemSlot4 = 0x2032E282;
+        public static uint GoofyAbilityStart = 0x2032E29C;
+
+        public static uint MulanArmorSlotCount = 0x2032E594;
+        public static uint MulanArmorSlot1 = 0x2032E598;
+        public static uint MulanAccessorySlotCount = 0x2032E595;
+        public static uint MulanAccessorySlot1 = 0x2032E5A8;
+        public static uint MulanItemSlotCount = 0x2032E596;
+        public static uint MulanItemSlot1 = 0x2032E5B8;
+        public static uint MulanItemSlot2 = 0x2032E5BA;
+        public static uint MulanItemSlot3 = 0x2032E5BC;
+        public static uint MulanAbilityStart = 0x2032E5D8;
+
+        public static uint BeastAccessorySlotCount = 0x2032E8D1;
+        public static uint BeastAccessorySlot1 = 0x2032E8E4;
+        public static uint BeastItemSlotCount = 0x2032E8D2;
+        public static uint BeastItemSlot1 = 0x2032E8F4;
+        public static uint BeastItemSlot2 = 0x2032E8F6;
+        public static uint BeastItemSlot3 = 0x2032E8F8;
+        public static uint BeastItemSlot4 = 0x2032E8FA;
+        public static uint BeastAbilityStart = 0x2032E914;
+
+        public static uint AuronArmorSlotCount = 0x2032E480;
+        public static uint AuronArmorSlot1 = 0x2032E484;
+        public static uint AuronItemSlotCount = 0x2032E482;
+        public static uint AuronItemSlot1 = 0x2032E4A4;
+        public static uint AuronItemSlot2 = 0x2032E4A6;
+        public static uint AuronAbilityStart = 0x2032E4C4;
+
+        public static uint CaptainJackSparrowArmorSlotCount = 0x2032E7BC;
+        public static uint CaptainJackSparrowArmorSlot1 = 0x2032E7C0;
+        public static uint CaptainJackSparrowAccessorySlotCount = 0x2032E7BD;
+        public static uint CaptainJackSparrowAccessorySlot1 = 0x2032E7D0;
+        public static uint CaptainJackSparrowItemSlotCount = 0x2032E7BE;
+        public static uint CaptainJackSparrowItemSlot1 = 0x2032E7E0;
+        public static uint CaptainJackSparrowItemSlot2 = 0x2032E7E2;
+        public static uint CaptainJackSparrowItemSlot3 = 0x2032E7E4;
+        public static uint CaptainJackSparrowItemSlot4 = 0x2032E7E6;
+        public static uint CaptainJackSparrowAbilityStart = 0x2032E800;
+
+        public static uint AladdinArmorSlotCount = 0x2032E6A8;
+        public static uint AladdinArmorSlot1 = 0x2032E6AC;
+        public static uint AladdinArmorSlot2 = 0x2032E6AE;
+        public static uint AladdinItemSlotCount = 0x2032E6AA;
+        public static uint AladdinItemSlot1 = 0x2032E6CC;
+        public static uint AladdinItemSlot2 = 0x2032E6CE;
+        public static uint AladdinItemSlot3 = 0x2032E6D0;
+        public static uint AladdinItemSlot4 = 0x2032E6D2;
+        public static uint AladdinItemSlot5 = 0x2032E6D4;
+        public static uint AladdinAbilityStart = 0x2032E6EC;
+
+        public static uint JackSkellingtonAccessorySlotCount = 0x2032E9E5;
+        public static uint JackSkellingtonAccessorySlot1 = 0x2032E9F8;
+        public static uint JackSkellingtonAccessorySlot2 = 0x2032E9FA;
+        public static uint JackSkellingtonItemSlotCount = 0x2032E9E6;
+        public static uint JackSkellingtonItemSlot1 = 0x2032EA08;
+        public static uint JackSkellingtonItemSlot2 = 0x2032EA0A;
+        public static uint JackSkellingtonItemSlot3 = 0x2032EA0C;
+        public static uint JackSkellingtonAbilityStart = 0x2032EA28;
+
+        public static uint SimbaAccessorySlotCount = 0x2032EAF9;
+        public static uint SimbaAccessorySlot1 = 0x2032EB0C;
+        public static uint SimbaAccessorySlot2 = 0x2032EB0E;
+        public static uint SimbaItemSlotCount = 0x2032EAFA;
+        public static uint SimbaItemSlot1 = 0x2032EB1C;
+        public static uint SimbaItemSlot2 = 0x2032EB1E;
+        public static uint SimbaItemSlot3 = 0x2032EB20;
+        public static uint SimbaAbilityStart = 0x2032EB3C;
+
+        public static uint TronArmorSlotCount = 0x2032EC0C;
+        public static uint TronArmorSlot1 = 0x2032EC10;
+        public static uint TronAccessorySlotCount = 0x2032EC0D;
+        public static uint TronAccessorySlot1 = 0x2032EC20;
+        public static uint TronItemSlotCount = 0x2032EC0E;
+        public static uint TronItemSlot1 = 0x2032EC30;
+        public static uint TronItemSlot2 = 0x2032EC32;
+        public static uint TronAbilityStart = 0x2032EC50;
+
+        public static uint RikuArmorSlotCount = 0x2032ED20;
+        public static uint RikuArmorSlot1 = 0x2032ED24;
+        public static uint RikuArmorSlot2 = 0x2032ED26;
+        public static uint RikuAccessorySlotCount = 0x2032ED21;
+        public static uint RikuAccessorySlot1 = 0x2032ED34;
+        public static uint RikuItemSlotCount = 0x2032ED22;
+        public static uint RikuItemSlot1 = 0x2032ED44;
+        public static uint RikuItemSlot2 = 0x2032ED46;
+        public static uint RikuItemSlot3 = 0x2032ED48;
+        public static uint RikuItemSlot4 = 0x2032ED4A;
+        public static uint RikuItemSlot5 = 0x2032ED4C;
+        public static uint RikuItemSlot6 = 0x2032ED4E;
+        public static uint RikuAbilityStart = 0x2032ED64;
+        #endregion Equipment
+
+        #region Abilities
+        public static uint SoraAbilitySlots = 0x2032E074;
+        public static uint DonaldAbilitySlots = 0x2032E188;
+        public static uint GoofyAbilitySlots = 0x2032E29C;
+        public static uint MulanAbilitySlots = 0x2032E5D8;
+        public static uint BeastAbilitySlots = 0x2032E914;
+        public static uint AuronAbilitySlots = 0x2032E4C4;
+        public static uint CaptainJackSparrowAbilitySlots = 0x2032E800;
+        public static uint AladdinAbilitySlots = 0x2032E6EC;
+        public static uint JackSkellingtonAbilitySlots = 0x2032EA28;
+        public static uint SimbaAbilitySlots = 0x2032EB3C;
+        public static uint TronAbilitySlots = 0x2032EC50;
+        public static uint RikuAbilitySlots = 0x2032ED64;
+        #endregion Abilities
+
+        public static uint WeaponSize = 0x2036CED0;
+        public static uint WeaponSizeAlt = 0x2036CECC; // TODO Is this the right one?
+        public static uint JumpAmount = 0x20191C70;
+    }
+
+    public static class ConstantValues
+    {
+        public static int None = 0x0;
+
+        #region Keyblades
+        public static int KingdomKey = 0x29;
+        public static int Oathkeeper = 0x2A;
+        public static int Oblivion = 0x2B;
+        public static int DetectionSaber = 0x2C;
+        public static int FrontierOfUltima = 0x2D;
+        public static int StarSeeker = 0x1E0;
+        public static int HiddenDragon = 0x1E1;
+        public static int HerosCrest = 0x1E4;
+        public static int Monochrome = 0x1E5;
+        public static int FollowTheWind = 0x1E6;
+        public static int CircleOfLife = 0x1E7;
+        public static int PhotonDebugger = 0x1E8;
+        public static int GullWing = 0x1E9;
+        public static int RumblingRose = 0x1EA;
+        public static int GuardianSoul = 0x1EB;
+        public static int WishingLamp = 0x1EC;
+        public static int DecisivePumpkin = 0x1ED;
+        public static int SleepingLion = 0x1EE;
+        public static int SweetMemories = 0x1EF;
+        public static int MysteriousAbyss = 0x1F0;
+        public static int FatalCrest = 0x1F1;
+        public static int BondOfFlame = 0x1F2;
+        public static int Fenrir = 0x1F3;
+        public static int UltimaWeapon = 0x1F4;
+        public static int TwoBecomeOne = 0x220;
+        public static int WinnersProof = 0x221;
+        public static ushort StruggleBat = 0x180;
+        #endregion Keyblades
+
+        #region Staffs
+        public static int MagesStaff = 0x4B;
+        public static int HammerStaff = 0x94;
+        public static int VictoryBell = 0x95;
+        public static int MeteorStaff = 0x96;
+        public static int CometStaff = 0x97;
+        public static int LordsBroom = 0x98;
+        public static int WisdomWand = 0x99;
+        public static int RisingDragon = 0x9A;
+        public static int NobodyLance = 0x9B;
+        public static int ShamansRelic = 0x9C;
+        public static int ShamansRelicPlus = 0x258;
+        public static int StaffOfDetection = 0xA1;
+        public static int SaveTheQueen = 0x1E2;
+        public static int SaveTheQueenPlus = 0x1F7;
+        public static int Centurion = 0x221;
+        public static int CenturionPlus = 0x222;
+        public static int PlainMushroom = 0x223;
+        public static int PlainMushroomPlus = 0x224;
+        public static int PreciousMushroom = 0x225;
+        public static int PreciousMushroomPlus = 0x226;
+        public static int PremiumMushroom = 0227;
+        #endregion Staffs
+
+        #region Shields
+        public static int KnightsShield = 0x31;
+        public static int AdamantShield = 0x8B;
+        public static int ChainGear = 0x8C;
+        public static int OgreShield = 0x8D;
+        public static int FallingStar = 0x8E;
+        public static int Dreamcloud = 0x8F;
+        public static int KnightDefender = 0x90;
+        public static int GenjiShield = 0x91;
+        public static int AkashicRecord = 0x92;
+        public static int AkashicRecordPlus = 0x259;
+        public static int NobodyGuard = 0x93;
+        public static int DetectionShield = 0x32;
+        public static int SaveTheKing = 0x1E3;
+        public static int SaveTheKingPlus = 0x1F8;
+        public static int FrozenPride = 0x228;
+        public static int FrozenPridePlus = 0x229;
+        public static int JoyousMushroom = 0x22A;
+        public static int JoyousMushroomPlus = 0x22B;
+        public static int MajesticMushroom = 0x22C;
+        public static int MajesticMushroomPlus = 0x22D;
+        public static int UltimateMushroom = 0x22E;
+        #endregion Shields
+
+        #region Equipment
+
+        #region Armor
+        public static int ElvenBandana = 0x43;
+        public static int DivineBandana = 0x44;
+        public static int PowerBand = 0x45;
+        public static int BusterBand = 0x46;
+        public static int ChampionBelt = 0x131;
+        public static int ProtectBelt = 0x4E;
+        public static int GaiaBelt = 0x4F;
+        public static int CosmicBelt = 0x6F;
+        public static int FireBangle = 0xAD;
+        public static int FiraBangle = 0xAE;
+        public static int FiragaBangle = 0xC5;
+        public static int FiragunBangle = 0x11C;
+        public static int BlizzardArmlet = 0x11E;
+        public static int BlizzaraArmlet = 0x11F;
+        public static int BlizzaragaArmlet = 0x120;
+        public static int BlizzaragunArmlet = 0x121;
+        public static int ThunderTrinket = 0x123;
+        public static int ThundaraTrinket = 0x124;
+        public static int ThundagaTrinket = 0x125;
+        public static int ThundagunTrinket = 0x126;
+        public static int ShadowAnklet = 0x127;
+        public static int DarkAnklet = 0x128;
+        public static int MidnightAnklet = 0x129;
+        public static int ChaosAnklet = 0x12A;
+        public static int AbasChain = 0x12C;
+        public static int AegisChain = 0x12D;
+        public static int Acrisius = 0x12E;
+        public static int AcrisiusPlus = 0x133;
+        public static int CosmicChain = 0x134;
+        public static int ShockCharm = 0x84;
+        public static int ShockCharmPlus = 0x85;
+        public static int PetiteRibbon = 0x132;
+        public static int Ribbon = 0x130;
+        public static int GrandRibbon = 0x9D;
+        #endregion Armora
+
+        #region Accessory
+        public static int AbilityRing = 0x8;
+        public static int EngineersRing = 0x9;
+        public static int TechiniciansRing = 0xA;
+        public static int ExpertsRing = 0xB;
+        public static int MastersRing = 0x22;
+        public static int ExecutivesRing = 0x257;
+        public static int SkillRing = 0x26;
+        public static int SkillfulRing = 0x27;
+        public static int CosmicRing = 0x34;
+        public static int SardonyxRing = 0xC;
+        public static int TourmalineRing = 0xD;
+        public static int AquamarineRing = 0xE;
+        public static int GarnetRing = 0xF;
+        public static int DiamondRing = 0x10;
+        public static int SilverRing = 0x11;
+        public static int GoldRing = 0x12;
+        public static int PlatinumRing = 0x13;
+        public static int MythrilRing = 0x14;
+        public static int OrichalcumRing = 0x1C;
+        public static int SoldierEarring = 0x28;
+        public static int FencerEarring = 0x2E;
+        public static int MageEarring = 0x2F;
+        public static int SlayerEarring = 0x30;
+        public static int Medal = 0x53;
+        public static int MoonAmulet = 0x23;
+        public static int StarCharm = 0x24;
+        public static int CosmicArts = 0x56;
+        public static int ShadowArchive = 0x57;
+        public static int ShadowArchivePlus = 0x58;
+        public static int FullBloom = 0x40;
+        public static int FullBloomPlus = 0x42;
+        public static int DrawRing = 0x41;
+        public static int LuckyRing = 0x3F;
+        #endregion Accessory
+
+        #region Abilities
+        public static int Slapshot = 0x6;
+        public static int DodgeSlash = 0x7;
+        public static int SlideDash = 0x8;
+        public static int GuardBreak = 0x9;
+        public static int Explosion = 0xA;
+        public static int FinishingLeap = 0xB;
+        public static int Counterguard = 0xC;
+        public static int AerialSweep = 0xD;
+        public static int AerialSpiral = 0xE;
+        public static int HorizontalSlash = 0xF;
+        public static int AerialFinish = 0x10;
+        public static int RetaliatingSlash = 0x11;
+        public static int ComboMaster = 0x1B;
+        public static int DamageControl = 0x1E;
+        public static int FlashStep = 0x2F;
+        public static int AerialDive = 0x30;
+        public static int MagnetBurst = 0x31;
+        public static int VicinityBreak = 0x32;
+        public static int DodgeRollLv1 = 0x34;
+        public static int DodgeRollLv2 = 0x35;
+        public static int DodgeRollLv3 = 0x36;
+        public static int DodgeRollMax = 0x37;
+        public static int AutoLimit = 0x38;
+        public static int Guard = 0x52;
+        public static int HighJumpLv1 = 0x5E;
+        public static int HighJumpLv2 = 0x5F;
+        public static int HighJumpLv3 = 0x60;
+        public static int HighJumpMax = 0x61;
+        public static int QuickRunLv1 = 0x62;
+        public static int QuickRunLv2 = 0x63;
+        public static int QuickRunLv3 = 0x64;
+        public static int QuickRunMax = 0x65;
+        public static int AerialDodgeLv1 = 0x66;
+        public static int AerialDodgeLv2 = 0x67;
+        public static int AerialDodgeLv3 = 0x68;
+        public static int AerialDodgeMax = 0x69;
+        public static int GlideLv1 = 0x6A;
+        public static int GlideLv2 = 0x6B;
+        public static int GlideLv3 = 0x6C;
+        public static int GlideMax = 0x6D;
+        public static int AutoValor = 0x81; // TODO Find out why the toggle value is different
+        public static int SecondChance = 0x81; // TODO Find out why the toggle value is different
+        public static int AutoWisdom = 0x82;
+        public static int AutoMaster = 0x83;
+        public static int AutoFinal = 0x84;
+        public static int AutoSummon = 0x85;
+        public static int ComboBoost = 0x86;
+        public static int AirComboBoost = 0x87;
+        public static int ReactionBoost = 0x88;
+        public static int FinishingPlus = 0x89; // TODO Find out why the toggle value is different
+        public static int UpperSlash = 0x89; // TODO Find out why the toggle value is different
+        public static int NegativeCombo = 0x8A; // TODO Find out why the toggle value is different
+        public static int Scan = 0x8A; // TODO Find out why the toggle value is different
+        public static int BerserkCharge = 0x8B;
+        public static int DamageDrive = 0x8C;
+        public static int DriveBoost = 0x8D;
+        public static int FormBoost = 0x8E;
+        public static int SummonBoost = 0x8F;
+        public static int CombinationBoost = 0x90;
+        public static int ExperienceBoost = 0x91;
+        public static int LeafBracer = 0x92;
+        public static int MagicLockOn = 0x93;
+        public static int NoExperience = 0x94;
+        public static int Draw = 0x95;
+        public static int Jackpot = 0x96;
+        public static int LuckyLucky = 0x97;
+        public static int DriveConverter = 0x98;
+        public static int FireBoost = 0x98;
+        public static int BlizzardBoost = 0x99;
+        public static int ThunderBoost = 0x9A;
+        public static int ItemBoost = 0x9B;
+        public static int MPRage = 0x9C;
+        public static int MPHaste = 0x9D;
+        public static int MPHastega = 0x9E; // TODO Find out why the toggle value is different
+        public static int AerialRecovery = 0x9E; // TODO Find out why the toggle value is different
+        public static int Defender = 0x9E; // TODO Find out why the toggle value is different
+        public static int OnceMore = 0xA0;
+        public static int ComboPlus = 0xA2; // TODO Find out why the toggle value is different
+        public static int AutoChange = 0xA2; // TODO Find out why the toggle value is different
+        public static int AirComboPlus = 0xA3; // TODO Find out why the toggle value is different
+        public static int HyperHealing = 0xA3; // TODO Find out why the toggle value is different
+        public static int AutoHealing = 0xA4;
+        public static int MPHastera = 0xA5; // TODO Find out why the toggle value is different
+        public static int DonaldFire = 0xA5; // TODO Find out why the toggle value is different
+        public static int DonaldBlizzard = 0xA6;
+        public static int DonaldThunder = 0xA7; // TODO Find out why the toggle value is different
+        public static int GoofyTornado = 0xA7; // TODO Find out why the toggle value is different
+        public static int DonaldCure = 0xA8;
+        public static int GoofyTurbo = 0xA9;
+        public static int SlashFrenzy = 0xAA;
+        public static int Quickplay = 0xAB;
+        public static int Divider = 0xAC;
+        public static int GoofyBash = 0xAD;
+        public static int FerociousRush = 0xAE;
+        public static int BlazingFury = 0xAF;
+        public static int IcyTerror = 0xB0; // TODO Find out why the toggle value is different
+        public static int HealingWater = 0xB0; // TODO Find out why the toggle value is different
+        public static int BoltsOfSorrow = 0xB1; // TODO Find out why the toggle value is different
+        public static int FuriousShout = 0xB1; // TODO Find out why the toggle value is different
+        public static int MushuFire = 0xB2;
+        public static int Flametongue = 0xB3;
+        public static int DarkShield = 0xB4;
+        public static int Groundshaker = 0xB6; // TODO Find out why the toggle value is different
+        public static int DarkAura = 0xB6; // TODO Find out why the toggle value is different
+        public static int FierceClaw = 0xB7;
+        public static int CurePotion = 0xBB;
+        public static int ScoutingDisk = 0xBC;
+        public static int HealingHerb = 0xBE; // TODO Find out why the toggle value is different
+        public static int NoMercy = 0xBE; // TODO Find out why the toggle value is different
+        public static int RainStorm = 0xBF;
+        public static int BoneSmash = 0xC0;
+        public static int TrinityLimit = 0xC6;
+        public static int Fantasia = 0xC7;
+        public static int FlareForce = 0xC8;
+        public static int TornadoFusion = 0xC9;
+        public static int TrickFantasy = 0xCB;
+        public static int Overdrive = 0xCC;
+        public static int HowlingMoon = 0xCD;
+        public static int AplauseAplause = 0xCE;
+        public static int Dragonblaze = 0xCF;
+        public static int Teamwork = 0xCA;
+        public static int EternalSession = 0xD0;
+        public static int KingsPride = 0xD1;
+        public static int TreasureIsle = 0xD2;
+        public static int CompleteCompilment = 0xD3;
+        public static int PulsingThunder = 0xD7;
+
+        public static int SoraAbilityCount = 148;
+        public static int DonaldAbilityCount = 34;
+        public static int GoofyAbilityCount = 34;
+        public static int MulanAbilityCount = 16;
+        public static int BeastAbilityCount = 16;
+        public static int AuronAbilityCount = 14;
+        public static int CaptainJackSparrowAbilityCount = 24;
+        public static int AladdinAbilityCount = 18;
+        public static int JackSkellingtonAbilityCount = 22;
+        public static int SimbaAbilityCount = 18;
+        public static int TronAbilityCount = 18;
+        public static int RikuAbilityCount = 22;
+        #endregion Abilities
+
+        #endregion Equipment
+
+        #region Items
+        public static int Potion = 0x1;
+        public static int HiPotion = 0x2;
+        public static int Ether = 0x3;
+        public static int Elixir = 0x4;
+        public static int MegaPotion = 0x5;
+        public static int MegaEther = 0x6;
+        public static int Megalixir = 0x7;
+        #endregion Items
+
+        #region Abilities
+
+        #endregion Abilities
+
+        #region Characters
+        public static int Sora = 0x54;
+        public static int KH1Sora = 0x6C1;
+        public static int CardSora = 0x601;
+        public static int DieSora = 0x602;
+        public static int LionSora = 0x28A;
+        public static int ChristmasSora = 0x955;
+        public static int SpaceParanoidsSora = 0x656;
+        public static int TimelessRiverSora = 0x955;
+
+        public static ushort ValorFormSora = 0x55;
+        public static int WisdomFormSora = 0x56;
+        public static int LimitFormSora = 0x95D;
+        public static int MasterFormSora = 0x57;
+        public static int FinalFormSora = 0x58;
+        public static int AntiFormSora = 0x59;
+
+        public static int Roxas = 0x5A;
+        public static int DualwieldRoxas = 0x323;
+
+        public static int MickeyRobed = 0x5B;
+        public static int Mickey = 0x318;
+
+        public static ushort Donald = 0x5C;
+        public static ushort BirdDonald = 0x5EF;
+        public static ushort HalloweenDonald = 0x29E;
+        public static ushort ChristmasDonald = 0x95B;
+        public static ushort SpaceParanoidsDonald = 0x55A;
+        public static ushort TimelessRiverDonald = 0x5CF;
+
+        public static ushort Goofy = 0x5D;
+        public static ushort TortoiseGoofy = 0x61B;
+        public static ushort HalloweenGoofy = 0x29D;
+        public static ushort ChristmasGoofy = 0x95C;
+        public static ushort SpaceParanoidsGoofy = 0x554;
+        public static ushort TimelessRiverGoofy = 0x4F5;
+
+        public static int Beast = 0x5E;
+        public static int Ping = 0x64;
+        public static int Mulan = 0x63;
+        public static int Auron = 0x65;
+        public static int Aladdin = 0x62;
+        public static int JackSparrow = 0x66;
+        public static int HalloweenJack = 0x5F;
+        public static int ChristmasJack = 0x60;
+        public static int Simba = 0x61;
+        public static int Tron = 0x2D4;
+        public static int Hercules = 0x16A;
+        public static int Minnie = 0x4BB;
+        public static int Riku = 0x819;
+
+        public static int AxelFriend = 0x4DC;
+        public static int LeonFriend = 0x61C;
+        public static int YuffieFriend = 0x6B0;
+        public static int TifaFriend = 0x6B3;
+        public static int CloudFriend = 0x688;
+
+        public static int LeonEnemy = 0x8F8;
+        public static int YuffieEnemy = 0x8FB;
+        public static int TifaEnemy = 0x8FA;
+        public static int CloudEnemy = 0x8F9;
+
+        public static int Xemnas = 0x81F;
+        public static int Xigbar = 0x622;
+        public static int Xaldin = 0x3E5;
+        public static int Vexen = 0x933;
+        public static int VexenAntiSora = 0x934;
+        public static int Lexaeus = 0x935;
+        public static int Zexion = 0x97B;
+        public static int Saix = 0x6C9;
+        public static int AxelEnemy = 0x51;
+        public static int Demyx = 0x31B;
+        public static int DemyxWaterClone = 0x8F6;
+        public static int Luxord = 0x5F8;
+        public static int Marluxia = 0x923;
+        public static int Larxene = 0x962;
+        public static int RoxasEnemy = 0x951;
+        public static int RoxasShadow = 0x754;
+
+        public static int Sephiroth = 0x8B6;
+        public static int LingeringWill = 0x96F;
+        #endregion Characters
+
+        #region Magic
+        public static int Fire = 0x1;
+        public static int Fira = 0x2;
+        public static int Firaga = 0x3;
+        public static int Blizzard = 0x1;
+        public static int Blizzara = 0x2;
+        public static int Blizzaga = 0x3;
+        public static int Thunder = 0x1;
+        public static int Thundara = 0x2;
+        public static int Thundaga = 0x3;
+        public static int Cure = 0x1;
+        public static int Cura = 0x2;
+        public static int Curaga = 0x3;
+        public static int Reflect = 0x1;
+        public static int Reflera = 0x2;
+        public static int Reflega = 0x3;
+        public static int Magnet = 0x1;
+        public static int Magnera = 0x2;
+        public static int Magnega = 0x3;
+        #endregion Magic
+
+        #region Speed
+        public static uint SlowDownx3 = 0x40C00000;
+        public static uint SlowDownx2 = 0x40500000;
+        public static uint SlowDownx1 = 0x40000000;
+        public static uint NormalSpeed = 0x41000000;
+        public static uint SpeedUpx1 = 0x41C00000;
+        public static uint SpeedUpx2 = 0x42500000;
+        public static uint SpeedUpx3 = 0x42E00000;
+        #endregion Speed
+
+        #region Invulnerability
+        //public static int Invulnerability_1 = 0x8C820004;
+        public static int Invulnerability_2 = 0x0806891E;
+        //public static int Invulnerability_3 = 0xAC820000;
+        public static int Invulnerability_4 = 0x0C03F800;
+
+        public static int InvulnerabilityFalse = 0x30E7FFFF;
+        #endregion Invulnerability
+
+        #region Quick Slot Values
+        public static int PotionQuickSlotValue = 0x17;
+        public static int HiPotionQuickSlotValue = 0x14;
+        public static int MegaPotionQuickSlotValue = 0xF2;
+        public static int EtherQuickSlotValue = 0x15;
+        public static int MegaEtherQuickSlotValue = 0xF3;
+        public static int ElixirQuickSlotValue = 0xF4;
+        public static int MegalixirQuickSlotValue = 0xF4;
+        public static int FireQuickSlotValue = 0x31;
+        public static int BlizzardQuickSlotValue = 0x33;
+        public static int ThunderQuickSlotValue = 0x32;
+        public static int CureQuickSlotValue = 0x34;
+        public static int MagnetQuickSlotValue = 0xAE;
+        public static int ReflectQuickSlotValue = 0xB1;
+        #endregion Quick Slot Values
+
+        public static uint Triangle = 0xEF;
+        public static uint TinyWeapon = 0x3F000000;
+        public static uint NormalWeapon = 0x3F800000;
+        public static uint BigWeapon = 0xC1000000;
+
+        public static uint ReactionValor = 0x6;
+        public static uint ReactionWisdom = 0x7;
+        public static uint ReactionLimit = 0x2A2;
+        public static uint ReactionMaster = 0xB;
+        public static uint ReactionFinal = 0xC;
+        public static uint ReactionAnti = 0xD;
+    }
+
+    #endregion Constants
+}
