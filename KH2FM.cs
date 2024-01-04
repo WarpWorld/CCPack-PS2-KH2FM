@@ -9,6 +9,8 @@ using CrowdControl.Common;
 using JetBrains.Annotations;
 using ConnectorType = CrowdControl.Common.ConnectorType;
 using Timer = System.Timers.Timer;
+using Log = CrowdControl.Common.Log;
+using System.Diagnostics.Tracing;
 // ReSharper disable CommentTypo
 
 namespace CrowdControl.Games.Packs.KH2FM
@@ -26,7 +28,13 @@ namespace CrowdControl.Games.Packs.KH2FM
         public KH2FM(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler)
         {
             kh2FMCrowdControl = new KH2FMCrowdControl();
-            Effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id) { Price = (uint)x.Value.Cost, Description = x.Value.Description }).ToList();
+            Effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id) {
+                Price = (uint)x.Value.Cost,
+                Description = x.Value.Description,
+                Duration = SITimeSpan.FromSeconds(x.Value.DurationSeconds), // I'm guessing this maps to the wind down timer you'd see in the overlay
+                Category = x.Value.GetEffectCategory(),
+                Group = x.Value.GetEffectGroup(),
+            }).ToList();
             Log.Message("Pack initialization complete");
 
             Timer timer = new(1000.0);
@@ -35,7 +43,15 @@ namespace CrowdControl.Games.Packs.KH2FM
             timer.Start();
         }
 
-        protected override bool IsReady(EffectRequest request) => true;
+        private Option GetOptionForRequest(EffectRequest request) {
+            string effectId = FinalCode(request);
+            Log.Message($"Effect Id: {effectId}");
+            return kh2FMCrowdControl.Options[effectId];
+        }
+
+        protected override bool IsReady(EffectRequest request) {
+            return GetOptionForRequest(request).IsReady();
+        }
 
         protected override void StartEffect(EffectRequest request)
         {
@@ -45,51 +61,56 @@ namespace CrowdControl.Games.Packs.KH2FM
                 return;
             }
 
-            string effectId = FinalCode(request);
+            GetOptionForRequest(request).StartEffect(Connector);
+        }
 
-
-
-            Log.Message($"Effect Id {effectId}");
-
-            Effect effect = Effects[effectId];
-            Option option = kh2FMCrowdControl.Options[effectId];
-
-            option.StartEffect(Connector);
-
-            // TODO Add Effect handling
+        protected override bool StopEffect(EffectRequest request)
+        {
+            Option option = GetOptionForRequest(request);
+            return base.StopEffect(request) && option.StopEffect(Connector);
         }
     }
 
     public abstract class Option
     {
+        private bool isActive = false;
+        private Category category = Category.None;
+        private SubCategory subCategory = SubCategory.None;
+
         public string Name { get; set; }
         public string Id { get; set; } // Used primarily to create a unique, formatted ID
         public string Description { get; set; }
-        public int Value { get; set; }
         public int Cost { get; set; }
-        public Category Category { get; set; }
-        public SubCategory SubCategory { get; set; }
-        public bool Active { get; set; } = true;
-        public Func<bool> Method { get; set; }
-        public DataType DataType { get; set; }
-        public ManipulationType ManipulationType { get; set; }
-        public uint Address { get; set; }
+        
         public int DurationSeconds { get; set; }
-
-        public Option() { }
-        public Option(string name, Category category, SubCategory subCategory, int value, DataType dataType, ManipulationType manipulationType, uint address, int cost, string description, int durationSeconds = 30)
+        
+        public Option(string name, string description, Category category, SubCategory subcategory, int cost = 50, int durationSeconds = 0)
         {
-            Name = ToString(name, manipulationType, value);
-            Id = ToId(category, subCategory, name, manipulationType, value);
-            Category = category;
-            SubCategory = subCategory;
-            Value = value;
-            DataType = dataType;
-            ManipulationType = manipulationType;
-            Address = address;
+            Name = name;
+            Id = ToId(category, subCategory, name);
             Cost = cost;
             Description = description;
             DurationSeconds = durationSeconds;
+        }
+
+        /// <summary>
+        /// This will check whether or not it is already running
+        /// as well as check if conflicting depdencies are running.
+        /// </summary>
+        /// <returns></returns>
+        public bool IsReady()
+        {
+            return !isActive;
+        }
+
+        public EffectGrouping? GetEffectCategory()
+        {
+            return category == Category.None ? null : new EffectGrouping(category.ToString());
+        }
+
+        public EffectGrouping? GetEffectGroup()
+        {
+            return subCategory == SubCategory.None ? null : new EffectGrouping(subCategory.ToString());
         }
 
         public bool StartEffect(IPS2Connector connector)
@@ -97,10 +118,14 @@ namespace CrowdControl.Games.Packs.KH2FM
             try
             {
                 DoEffect(connector);
-                Task.Delay(DurationSeconds * 1000).ContinueWith(_ =>
+                /* 
+                 * We only want to use isActive if the effect has a duration.
+                 * Otherwise, it should always be ready for another use.
+                */
+                if (DurationSeconds > 0)
                 {
-                    UndoEffect(connector);
-                });
+                    isActive = true;
+                }
             }
             catch (Exception e)
             {
@@ -110,56 +135,32 @@ namespace CrowdControl.Games.Packs.KH2FM
             return true;
         }
 
+        public bool StopEffect(IPS2Connector connector)
+        {
+            try
+            {
+                UndoEffect(connector);
+                /* 
+                 * Rather than check the duration here, we'll just always mark
+                 * isActive as false if we successfully undid the effect.
+                */
+                isActive = false;
+                return true;
+            } catch (Exception e) { 
+                Log.Error(e);
+                return false;
+            }
+        }
+
         public abstract void DoEffect(IPS2Connector connector);
 
         public abstract void UndoEffect(IPS2Connector connector);
 
-        public static string ToString(string objectName, ManipulationType type, int count)
-        {
-            if (type != ManipulationType.Set)
-            {
-                if (count > 1)
-                {
-                    return $"Give {count} {objectName}s";
-                }
-
-                if (count == 1)
-                {
-                    return $"Give {objectName}";
-                }
-
-                if (count == -1)
-                {
-                    return $"Take {objectName}";
-                }
-
-                if (count < -1)
-                {
-                    return $"Take {-count} {objectName}s";
-                }
-            }
-
-            return $"{objectName}";
-        }
-
-        public static string ToId(Category category, SubCategory subCategory, string objectName, ManipulationType manipulationType, int count)
+        public static string ToId(Category category, SubCategory subCategory, string objectName)
         {
             string modifiedCategory = category.ToString().Replace(" ", "_").Replace("'", "").ToLower();
             string modifiedSubCategory = subCategory.ToString().Replace(" ", "_").Replace("'", "").ToLower();
             string modifiedObjectName = objectName.Replace(" ", "_").Replace("'", "").ToLower();
-
-            if (manipulationType != ManipulationType.Set)
-            {
-                if (count > 0)
-                {
-                    return $"give_{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}_{count}";
-                }
-
-                if (count < 0)
-                {
-                    return $"take_{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}_{count}";
-                }
-            }
 
             return $"{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}";
         }
@@ -228,7 +229,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         #region Option Implementations
         private class OneShotSora : Option
         {
-            public OneShotSora() : base("1 Shot Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Max and Current HP to 1.") { }
+            public OneShotSora() : base("1 Shot Sora", "Set Sora's Max and Current HP to 1.", Category.Sora, SubCategory.Stats, durationSeconds: 60) { }
 
             private uint currentHP;
             private uint maxHP;
@@ -252,7 +253,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class HealSora : Option
         {
-            public HealSora() : base("Heal Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Heal Sora to Max HP.") { }
+            public HealSora() : base("Heal Sora", "Heal Sora to Max HP.", Category.Sora, SubCategory.Stats) { }
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -270,7 +271,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             private uint maxHP;
             private Timer? timer;
 
-            public Invulnerability() : base("Invulnerability", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to be invulnerable.") { }
+            public Invulnerability() : base("Invulnerability", "Set Sora to be invulnerable.", Category.Sora, SubCategory.Stats, durationSeconds: 60) { }
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -301,7 +302,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class MoneybagsSora : Option
         {
-            public MoneybagsSora() : base("Munnybags Sora", Category.Sora, SubCategory.Munny, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora 9999 Munny.", 0) { }
+            public MoneybagsSora() : base("Munnybags Sora", "Give Sora 9999 Munny.", Category.Sora, SubCategory.Munny) { }
             public override void DoEffect(IPS2Connector connector)
             {
                 connector.Read32LE(ConstantAddresses.Munny, out uint munny);
@@ -316,7 +317,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class RobSora : Option
         {
-            public RobSora() : base("Rob Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Take all of Sora's Munny.", 0) { }
+            public RobSora() : base("Rob Sora", "Take all of Sora's Munny.", Category.Sora, SubCategory.Stats) { }
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -328,7 +329,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class WhoAmI : Option
         {
-            public WhoAmI() : base("Who Am I?", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to a different character.") { }
+            public WhoAmI() : base("Who Am I?", "Set Sora to a different character.", Category.ModelSwap, SubCategory.None, durationSeconds: 60) { }
 
             private readonly List<int> values = new()
             {
@@ -395,7 +396,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class BackseatDriver : Option
         {
-            public BackseatDriver() : base("Backseat Driver", Category.Sora, SubCategory.Drive, 0, DataType.None, ManipulationType.None, 0x0, 50, "Trigger one of Sora's different form.") { }
+            public BackseatDriver() : base("Backseat Driver", "Trigger one of Sora's different form.", Category.Sora, SubCategory.Drive) { }
 
             private readonly List<uint> values = new()
             {
@@ -437,7 +438,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class WhoAreThey : Option
         {
-            public WhoAreThey() : base("Who Are They?", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Donald and Goofy to different characters.") { }
+            public WhoAreThey() : base("Who Are They?", "Set Donald and Goofy to different characters.", Category.ModelSwap, SubCategory.None, durationSeconds: 60) { }
 
             private readonly List<int> values = new()
             {
@@ -489,7 +490,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class SlowgaSora : Option
         {
-            public SlowgaSora() : base("Slowga Sora", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Speed to be super slow.") { }
+            public SlowgaSora() : base("Slowga Sora", "Set Sora's Speed to be super slow.", Category.Sora, SubCategory.None, durationSeconds: 30) { }
 
             private uint speed;
             private uint speedAlt = 0;
@@ -509,7 +510,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class HastegaSora : Option
         {
-            public HastegaSora() : base("Hastega Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Speed to be super fast.") { }
+            public HastegaSora() : base("Hastega Sora", "Set Sora's Speed to be super fast.", Category.Sora, SubCategory.Stats, durationSeconds: 30) { }
 
             private uint speed;
             private uint speedAlt = 0;
@@ -530,7 +531,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         // NEEDS WORK -- DOESNT SEEM TO DO ANYTHING
         private class SpaceJump : Option
         {
-            public SpaceJump() : base("Space Jump", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora the ability to Space Jump.") { }
+            public SpaceJump() : base("Space Jump", "Give Sora the ability to Space Jump.", Category.Sora, SubCategory.None, durationSeconds: 60) { }
 
             private uint jump;
 
@@ -550,7 +551,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class TinyWeapon : Option
         {
-            public TinyWeapon() : base("Tiny Weapon", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Weapon size to be tiny.") { }
+            public TinyWeapon() : base("Tiny Weapon", "Set Sora's Weapon size to be tiny.", Category.Sora, SubCategory.None, durationSeconds: 60) { }
 
             private uint currentWeaponSize;
             private uint currentWeaponSizeAlt = 0;
@@ -574,7 +575,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class GiantWeapon : Option
         {
-            public GiantWeapon() : base("Giant Weapon", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Weapon size to be huge.") { }
+            public GiantWeapon() : base("Giant Weapon", "Set Sora's Weapon size to be huge.", Category.Sora, SubCategory.None, durationSeconds: 60) { }
 
             private uint currentWeaponSize;
             private uint currentWeaponSizeAlt = 0;
@@ -597,7 +598,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class Struggling : Option
         {
-            public Struggling() : base("Struggling", Category.Sora, SubCategory.Weapon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Change Sora's weapon to the Struggle Bat.") { }
+            public Struggling() : base("Struggling", "Change Sora's weapon to the Struggle Bat.", Category.Sora, SubCategory.Weapon, durationSeconds: 60) { }
 
             private ushort currentKeyblade;
 
@@ -615,7 +616,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class HostileParty : Option
         {
-            public HostileParty() : base("Hostile Party", Category.ModelSwap, SubCategory.Enemy, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Donald and Goofy to random enemies.") { }
+            public HostileParty() : base("Hostile Party", "Set Donald and Goofy to random enemies.", Category.ModelSwap, SubCategory.Enemy, durationSeconds: 60) { }
 
             private readonly List<int> values = new()
             {
@@ -663,7 +664,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class IAmDarkness : Option
         {
-            public IAmDarkness() : base("I Am Darkness", Category.ModelSwap, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Change Sora to Antiform Sora.") { }
+            public IAmDarkness() : base("I Am Darkness", "Change Sora to Antiform Sora.", Category.ModelSwap, SubCategory.None) { }
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -710,7 +711,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         // NEEDS IMPLEMENTATION
         private class KillSora : Option
         {
-            public KillSora() : base("Kill Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Instantly Kill Sora.") { }
+            public KillSora() : base("Kill Sora", "Instantly Kill Sora.", Category.Sora, SubCategory.Stats) { }
 
             public override void DoEffect(IPS2Connector connector)
             {
@@ -726,7 +727,7 @@ namespace CrowdControl.Games.Packs.KH2FM
         // NEEDS IMPLEMENTATION
         private class RandomizeControls : Option
         {
-            public RandomizeControls() : base("Randomize Controls", Category.None, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Randomize the controls to the game.") { }
+            public RandomizeControls() : base("Randomize Controls", "Randomize the controls to the game.", Category.None, SubCategory.None) { }
 
             private Dictionary<uint, uint> controls = new()
             {
@@ -746,7 +747,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class ShuffleShortcuts : Option
         {
-            public ShuffleShortcuts() : base("Shuffle Shortcuts", Category.Sora, SubCategory.None, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora's Shortcuts to random commands.") { }
+            public ShuffleShortcuts() : base("Shuffle Shortcuts", "Set Sora's Shortcuts to random commands.", Category.Sora, SubCategory.None, durationSeconds: 60) { }
 
             private readonly Random random = new();
             private readonly Dictionary<int, Tuple<int, int>> values = new()
@@ -897,7 +898,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class GrowthSpurt : Option
         {
-            public GrowthSpurt() : base("Growth Spurt", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora Max Growth abilities.") { }
+            public GrowthSpurt() : base("Growth Spurt", "Give Sora Max Growth abilities.", Category.Sora, SubCategory.Stats, durationSeconds: 60) { }
 
             private uint startAddress;
 
@@ -953,7 +954,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class ExpertMagician : Option
         {
-            public ExpertMagician() : base("Expert Magician", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give Sora Max Magic and lower the cost of Magic.") { }
+            public ExpertMagician() : base("Expert Magician", "Give Sora Max Magic and lower the cost of Magic.", Category.Sora, SubCategory.Stats, durationSeconds: 30) { }
 
             private byte fire;
             private byte blizzard;
@@ -1026,7 +1027,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class AmnesiacMagician : Option
         {
-            public AmnesiacMagician() : base("Amnesiac Magician", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Take away all of Sora's Magic.") { }
+            public AmnesiacMagician() : base("Amnesiac Magician", "Take away all of Sora's Magic.", Category.Sora, SubCategory.Stats, durationSeconds: 60) { }
 
             private byte fire;
             private byte blizzard;
@@ -1065,7 +1066,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class Itemaholic : Option
         {
-            public Itemaholic() : base("Itemaholic", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Fill Sora's inventory with all items, accessories, armor and weapons.") { }
+            public Itemaholic() : base("Itemaholic", "Fill Sora's inventory with all items, accessories, armor and weapons.", Category.Sora, SubCategory.Stats) { }
 
             // Used to store all the information about what held items Sora had before
             private readonly Dictionary<uint, byte> items = new()
@@ -1163,7 +1164,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class SpringCleaning : Option
         {
-            public SpringCleaning() : base("Spring Cleaning", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Remove all items, accessories, armor and weapons from Sora's inventory.") { }
+            public SpringCleaning() : base("Spring Cleaning", "Remove all items, accessories, armor and weapons from Sora's inventory.", Category.Sora, SubCategory.Stats) { }
 
             // Used to store all the information about what held items Sora had before
             private readonly Dictionary<uint, byte> items = new()
@@ -1267,7 +1268,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class SummonChauffeur : Option
         {
-            public SummonChauffeur() : base("Summon Chauffeur", Category.Sora, SubCategory.Summon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Give all Drives and Summons to Sora.") { }
+            public SummonChauffeur() : base("Summon Chauffeur", "Give all Drives and Summons to Sora.", Category.Sora, SubCategory.Summon) { }
 
             // Used to store all the information about what held items Sora had before
             private readonly Dictionary<uint, byte> drivesSummons = new()
@@ -1324,7 +1325,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class SummonTrainer : Option
         {
-            public SummonTrainer() : base("Summon Trainer", Category.Sora, SubCategory.Summon, 0, DataType.None, ManipulationType.None, 0x0, 50, "Remove all Drives and Summons from Sora.") { }
+            public SummonTrainer() : base("Summon Trainer", "Remove all Drives and Summons from Sora.", Category.Sora, SubCategory.Summon) { }
 
             // Used to store all the information about what held items Sora had before
             private readonly Dictionary<uint, byte> drivesSummons = new()
@@ -1362,7 +1363,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class HeroSora : Option
         {
-            public HeroSora() : base("Hero Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to HERO mode, including Stats, Items, Magic, Drives and Summons.")
+            public HeroSora() : base("Hero Sora", "Set Sora to HERO mode, including Stats, Items, Magic, Drives and Summons.", Category.Sora, SubCategory.Stats, durationSeconds: 30)
             {
                 experMagician = new ExpertMagician();
                 itemaholic = new Itemaholic();
@@ -1430,7 +1431,7 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         private class ZeroSora : Option
         {
-            public ZeroSora() : base("Zero Sora", Category.Sora, SubCategory.Stats, 0, DataType.None, ManipulationType.None, 0x0, 50, "Set Sora to ZERO mode, including Stats, Items, Magic, Drives and Summons.")
+            public ZeroSora() : base("Zero Sora", "Set Sora to ZERO mode, including Stats, Items, Magic, Drives and Summons.", Category.Sora, SubCategory.Stats, durationSeconds: 30)
             {
                 amnesiacMagician = new AmnesiacMagician();
                 springCleaning = new SpringCleaning();
@@ -1498,11 +1499,12 @@ namespace CrowdControl.Games.Packs.KH2FM
         #endregion
     }
 
+
+
     #region Enums
     public enum Category
     {
         None = 0,
-
         Enemy = 1,
         Environment = 2,
         Item = 3,
