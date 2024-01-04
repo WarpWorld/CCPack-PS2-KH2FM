@@ -10,7 +10,6 @@ using JetBrains.Annotations;
 using ConnectorType = CrowdControl.Common.ConnectorType;
 using Timer = System.Timers.Timer;
 using Log = CrowdControl.Common.Log;
-using System.Diagnostics.Tracing;
 // ReSharper disable CommentTypo
 
 namespace CrowdControl.Games.Packs.KH2FM
@@ -31,7 +30,7 @@ namespace CrowdControl.Games.Packs.KH2FM
             Effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id) {
                 Price = (uint)x.Value.Cost,
                 Description = x.Value.Description,
-                Duration = SITimeSpan.FromSeconds(x.Value.DurationSeconds), // I'm guessing this maps to the wind down timer you'd see in the overlay
+                Duration = SITimeSpan.FromSeconds(x.Value.DurationSeconds),
                 Category = x.Value.GetEffectCategory(),
                 Group = x.Value.GetEffectGroup(),
             }).ToList();
