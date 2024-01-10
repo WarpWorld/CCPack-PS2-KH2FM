@@ -14,10 +14,9 @@ using Timer = System.Timers.Timer;
 namespace CrowdControl.Games.Packs.KH2FM;
 
 [UsedImplicitly]
-[SuppressMessage("CrowdControl", "All")]
 public class KH2FM : PS2EffectPack
 {
-    public override Game Game => new(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
+    public override Game Game { get; } = new(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
 
     private readonly KH2FMCrowdControl kh2FMCrowdControl;
 
