@@ -37,8 +37,13 @@ namespace CrowdControl.Games.Packs.KH2FM
             Log.Message("Pack initialization complete");
 
             Timer timer = new(1000.0);
-            timer.Elapsed += (_, _) => kh2FMCrowdControl.FixTPose(Connector);
-
+            timer.Elapsed += (_, _) =>
+            {
+                if (kh2FMCrowdControl.CheckTPose(Connector))
+                {
+                    kh2FMCrowdControl.FixTPose(Connector);
+                }
+            };
             timer.Start();
         }
 
@@ -206,6 +211,16 @@ namespace CrowdControl.Games.Packs.KH2FM
             }.ToDictionary(option => option.Id, option => option);
         }
 
+        public bool CheckTPose(IPS2Connector connector)
+        {
+            if (connector == null) return false;
+
+            connector.Read64LE(0x20341708, out ulong animationStateOffset);
+            connector.Read32LE(animationStateOffset + 0x2000014C, out uint animationState);
+
+            return animationState == 0;
+        }
+
         public void FixTPose(IPS2Connector connector)
         {
             if (connector == null) return;
@@ -218,7 +233,8 @@ namespace CrowdControl.Games.Packs.KH2FM
             {
                 connector.Read16LE(animationStateOffset + 0x2000000C, out ushort animationState);
 
-                if (animationState != 0x8001 && animationState != 0x30)
+                // 0x8001 is Idle state
+                if (animationState != 0x8001)
                 {
                     connector.Write16LE(animationStateOffset + 0x2000000C, 0x40);
                 }
