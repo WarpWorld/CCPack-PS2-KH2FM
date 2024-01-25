@@ -54,7 +54,17 @@ namespace CrowdControl.Games.Packs.KH2FM
         }
 
         protected override bool IsReady(EffectRequest request) {
-            return GetOptionForRequest(request).IsReady();
+            Option option = GetOptionForRequest(request);
+            /* 
+             * If none of the options that conflict with the requested option
+             * are running (are all ready), then the requested option can start.
+             * Said differently: If any option that conflicts with the requested option is
+             * currently active (not ready), then the requested option
+             * should not start.
+             * 
+            */
+            bool noConflicts = kh2FMCrowdControl.OptionConflicts[option.Id].All((id) => kh2FMCrowdControl.Options[id].IsReady());
+            return noConflicts && GetOptionForRequest(request).IsReady();
         }
 
         protected override void StartEffect(EffectRequest request)
@@ -77,21 +87,37 @@ namespace CrowdControl.Games.Packs.KH2FM
 
     public abstract class Option
     {
+        public static string ToId(Category category, SubCategory subCategory, string objectName)
+        {
+            string modifiedCategory = category.ToString().Replace(" ", "_").Replace("'", "").ToLower();
+            string modifiedSubCategory = subCategory.ToString().Replace(" ", "_").Replace("'", "").ToLower();
+            string modifiedObjectName = objectName.Replace(" ", "_").Replace("'", "").ToLower();
+
+            return $"{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}";
+        }
+
         private bool isActive = false;
-        private Category category = Category.None;
-        private SubCategory subCategory = SubCategory.None;
+        protected Category category = Category.None;
+        protected SubCategory subCategory = SubCategory.None;
 
         public string Name { get; set; }
-        public string Id { get; set; } // Used primarily to create a unique, formatted ID
+        public string Id { 
+            get
+            {
+                return ToId(category, subCategory, Name);
+            }
+        }
+
         public string Description { get; set; }
         public int Cost { get; set; }
         
         public int DurationSeconds { get; set; }
         
-        public Option(string name, string description, Category category, SubCategory subcategory, int cost = 50, int durationSeconds = 0)
+        public Option(string name, string description, Category category, SubCategory subCategory, int cost = 50, int durationSeconds = 0)
         {
             Name = name;
-            Id = ToId(category, subCategory, name);
+            this.category = category;
+            this.subCategory = subCategory;
             Cost = cost;
             Description = description;
             DurationSeconds = durationSeconds;
@@ -99,7 +125,6 @@ namespace CrowdControl.Games.Packs.KH2FM
 
         /// <summary>
         /// This will check whether or not it is already running
-        /// as well as check if conflicting depdencies are running.
         /// </summary>
         /// <returns></returns>
         public bool IsReady()
@@ -156,59 +181,82 @@ namespace CrowdControl.Games.Packs.KH2FM
             }
         }
 
+        public List<string> GetConflictingOptionIds() {
+            return new List<string>();
+        }
+
         public abstract void DoEffect(IPS2Connector connector);
 
         public abstract void UndoEffect(IPS2Connector connector);
-
-        public static string ToId(Category category, SubCategory subCategory, string objectName)
-        {
-            string modifiedCategory = category.ToString().Replace(" ", "_").Replace("'", "").ToLower();
-            string modifiedSubCategory = subCategory.ToString().Replace(" ", "_").Replace("'", "").ToLower();
-            string modifiedObjectName = objectName.Replace(" ", "_").Replace("'", "").ToLower();
-
-            return $"{modifiedCategory}_{modifiedSubCategory}_{modifiedObjectName}";
-        }
     }
 
     public class KH2FMCrowdControl
     {
         public Dictionary<string, Option> Options;
+        public Dictionary<string, string[]> OptionConflicts;
 
         public KH2FMCrowdControl()
         {
+            OneShotSora oneShotSora = new OneShotSora();
+            HealSora healSora = new HealSora();
+            Invulnerability invulnerability = new Invulnerability();
+            MoneybagsSora moneybagsSora = new MoneybagsSora();
+            RobSora robSora = new RobSora();
+            GrowthSpurt growthSpurt = new GrowthSpurt();
+            SlowgaSora slowgaSora = new SlowgaSora();
+            TinyWeapon tinyWeapon = new TinyWeapon();
+            GiantWeapon giantWeapon = new GiantWeapon();
+            Struggling struggling = new Struggling();
+            WhoAreThey whoAreThey = new WhoAreThey();
+            HostileParty hostileParty = new HostileParty();
+            ShuffleShortcuts shuffleShortcuts = new ShuffleShortcuts();
+            HastegaSora hastegaSora = new HastegaSora();
+            IAmDarkness iAmDarkness = new IAmDarkness();
+            BackseatDriver backseatDriver = new BackseatDriver();
+            ExpertMagician expertMagician = new ExpertMagician();
+            AmnesiacMagician amnesiacMagician = new AmnesiacMagician();
+            Itemaholic itemaholic = new Itemaholic();
+            SpringCleaning springCleaning = new SpringCleaning();
+            SummonChauffeur summonChauffeur = new SummonChauffeur();
+            SummonTrainer summonTrainer = new SummonTrainer();
+            HeroSora heroSora = new HeroSora();
+            ZeroSora zeroSora = new ZeroSora();
+
             Options = new List<Option>
             {
-                new OneShotSora(),
-                new HealSora(),
-                new Invulnerability(),
-                new MoneybagsSora(),
-                new RobSora(),
-                new WhoAmI(),
-                new GrowthSpurt(),
-                new SlowgaSora(),
-                //new SpaceJump(),              // For some reason, it worked the first time, but not after
-                new TinyWeapon(),
-                new GiantWeapon(),
-                new Struggling(),
-                new WhoAreThey(),
-                new HostileParty(),
-                new ShuffleShortcuts(),
-                new HastegaSora(),
-                new IAmDarkness(),
-                new BackseatDriver(),
-                new ExpertMagician(),
-                new AmnesiacMagician(),
-                new Itemaholic(),
-                new SpringCleaning(),
-                new SummonChauffeur(),
-                new SummonTrainer(),
-                new HeroSora(),
-                new ZeroSora()
+                oneShotSora,
+                healSora,
+                invulnerability,
+                moneybagsSora,
+                robSora,
+                growthSpurt,
+                tinyWeapon,
+                giantWeapon,
+                struggling,
+                shuffleShortcuts,
+                hastegaSora,
+                iAmDarkness,
+                backseatDriver,
+                expertMagician,
+                amnesiacMagician,
+                itemaholic,
+                springCleaning,
+                summonChauffeur,
+                summonTrainer,
+                heroSora,
+                zeroSora
+            }.ToDictionary(x => x.Id, x => x);
 
-                // Unfinished:
-                // new KillSora(),              // Haven't quite figured out how to call functions in pcsx2
-                // new RandomizeControls(),     // Haven't quite figured out how to switch around buttons in pcsx2
-            }.ToDictionary(option => option.Id, option => option);
+            OptionConflicts = new Dictionary<string, string[]>
+            {
+                { oneShotSora.Id, new [] { healSora.Id, invulnerability.Id } },
+                { healSora.Id, new [] { oneShotSora.Id, invulnerability.Id } },
+                { tinyWeapon.Id, new [] { giantWeapon.Id } },
+                { giantWeapon.Id, new [] { tinyWeapon.Id } },
+                { expertMagician.Id, new [] { amnesiacMagician.Id } },
+                { amnesiacMagician.Id, new [] { expertMagician.Id } },
+                { heroSora.Id, new [] { zeroSora.Id } },
+            };
         }
 
         public bool CheckTPose(IPS2Connector connector)
@@ -364,8 +412,18 @@ namespace CrowdControl.Games.Packs.KH2FM
             public override void DoEffect(IPS2Connector connector)
             {
                 ushort randomModel = (ushort)values[new Random().Next(values.Count)];
+                Log.Message($"Random Model value: {randomModel}");
+
+                connector.Read16LE(ConstantAddresses.Sora, out ushort currentSora);
+                Log.Message($"Sora's current model value: {currentSora}");
+
 
                 connector.Write16LE(ConstantAddresses.Sora, randomModel);
+
+                connector.Read16LE(ConstantAddresses.Sora, out ushort newSora);
+                Log.Message($"Sora's current model value: {newSora}");
+
+
                 connector.Write16LE(ConstantAddresses.LionSora, randomModel);
                 connector.Write16LE(ConstantAddresses.ChristmasSora, randomModel);
                 connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, randomModel);
