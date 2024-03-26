@@ -32,7 +32,6 @@ public class KH2FM : PS2EffectPack
             Category = x.Value.GetEffectCategory(),
             Group = x.Value.GetEffectGroup(),
         }).ToList();
-        Log.Message("Pack initialization complete");
 
         Timer timer = new(1000.0);
         timer.Elapsed += (_, _) =>
@@ -63,7 +62,10 @@ public class KH2FM : PS2EffectPack
          * should not start.
          * 
         */
-        bool noConflicts = kh2FMCrowdControl.OptionConflicts[option.Id].All((id) => kh2FMCrowdControl.Options[id].IsReady());
+        string[] conflictingIds = Array.Empty<string>();
+        bool hasConflicts = kh2FMCrowdControl.OptionConflicts.TryGetValue(option.Id, out conflictingIds);
+        bool noConflicts = !hasConflicts || kh2FMCrowdControl.OptionConflicts[option.Id].All((id) => kh2FMCrowdControl.Options[id].IsReady());
+        Log.Message($"Has Conflicts: {hasConflicts}, No Conflicts: {noConflicts}");
         return noConflicts && GetOptionForRequest(request).IsReady();
     }
 
@@ -81,7 +83,7 @@ public class KH2FM : PS2EffectPack
     protected override bool StopEffect(EffectRequest request)
     {
         Option option = GetOptionForRequest(request);
-        return base.StopEffect(request) && option.StopEffect(Connector);
+        return option.StopEffect(Connector);
     }
 }
 
