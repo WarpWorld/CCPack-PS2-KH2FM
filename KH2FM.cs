@@ -49,14 +49,20 @@ public class KH2FM : PS2EffectPack
     private Option GetOptionForRequest(EffectRequest request)
     {
         string effectId = FinalCode(request);
-        Log.Message($"Requested Effect Id (FinalCode): {effectId}");
+        Log.Debug($"Requested Effect Id (FinalCode): {effectId}");
         var availableEffectIds = kh2FMCrowdControl.Options.Select((pair) => pair.Key).ToList();
-        Log.Message("Available Effect Ids: " + string.Join(", ", availableEffectIds));
+        Log.Debug("Available Effect Ids: " + string.Join(", ", availableEffectIds));
         return kh2FMCrowdControl.Options[effectId];
     }
 
     protected override bool IsReady(EffectRequest request)
     {
+        if(request.EffectID.Equals("__CC_EMPTY"))
+        {
+            return true;
+        }
+
+        Log.Message($"[IsReady] request.EffectId = {request.EffectID}");
         Option option = GetOptionForRequest(request);
         /* 
          * If none of the options that conflict with the requested option
@@ -70,25 +76,50 @@ public class KH2FM : PS2EffectPack
         bool hasPossibleConflicts = kh2FMCrowdControl.OptionConflicts.TryGetValue(option.Id, out conflictingIds);
         bool noConflicts = !hasPossibleConflicts || kh2FMCrowdControl.OptionConflicts[option.Id].All((id) => kh2FMCrowdControl.Options[id].IsReady());
         Log.Message($"Has Possible Conflicts: {hasPossibleConflicts}, No Conflicts: {noConflicts}");
-        return noConflicts && GetOptionForRequest(request).IsReady();
+        return noConflicts && option.IsReady();
+    }
+
+    private string EffectRequestToString(EffectRequest request)
+    {
+        return @$"(
+            Id: {request.ID},
+            EffectID: {request.EffectID}, 
+            BlockType: {request.BlockType},
+            Duration: {request.Duration},
+            AttemptCount: {request.AttemptCount},
+            Free: {request.Free},
+            Test: {request.Test},
+            Queued: {request.Queued},
+            Cost: {request.Cost},
+            ViewerName: {request.DisplayViewer},
+        )";
     }
 
     protected override void StartEffect(EffectRequest request)
     {
-        Log.Message($"[StartEffect] request.EffectId = {request.EffectID}");
+        base.StartEffect(request);
+        Log.Message($"[StartEffect] request.EffectId = {request.EffectID} {EffectRequestToString(request)}");
         if (!IsReady(request))
         {
             DelayEffect(request);
             return;
         }
+        Log.Message($"[StartEffect] Effect is ready. Starting now!");
 
-        GetOptionForRequest(request).StartEffect(Connector);
+        Option option = GetOptionForRequest(request);
+
+        TryEffect(
+            request, () => true,
+            () => option.StartEffect(Connector),
+            () => true
+        );
     }
 
     protected override bool StopEffect(EffectRequest request)
     {
         Log.Message($"[StopEffect] request.EffectId = {request.EffectID}");
         Option option = GetOptionForRequest(request);
+        base.StopEffect(request);
         return option.StopEffect(Connector);
     }
 }
