@@ -23,6 +23,8 @@ public class KH2FM : PS2EffectPack
 
     public KH2FM(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler)
     {
+        Log.FileOutput = true;
+
         kh2FMCrowdControl = new KH2FMCrowdControl();
         Effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id)
         {
@@ -47,7 +49,9 @@ public class KH2FM : PS2EffectPack
     private Option GetOptionForRequest(EffectRequest request)
     {
         string effectId = FinalCode(request);
-        Log.Message($"Effect Id: {effectId}");
+        Log.Message($"Requested Effect Id (FinalCode): {effectId}");
+        var availableEffectIds = kh2FMCrowdControl.Options.Select((pair) => pair.Key).ToList();
+        Log.Message("Available Effect Ids: " + string.Join(", ", availableEffectIds));
         return kh2FMCrowdControl.Options[effectId];
     }
 
@@ -63,14 +67,15 @@ public class KH2FM : PS2EffectPack
          * 
         */
         string[] conflictingIds = Array.Empty<string>();
-        bool hasConflicts = kh2FMCrowdControl.OptionConflicts.TryGetValue(option.Id, out conflictingIds);
-        bool noConflicts = !hasConflicts || kh2FMCrowdControl.OptionConflicts[option.Id].All((id) => kh2FMCrowdControl.Options[id].IsReady());
-        Log.Message($"Has Conflicts: {hasConflicts}, No Conflicts: {noConflicts}");
+        bool hasPossibleConflicts = kh2FMCrowdControl.OptionConflicts.TryGetValue(option.Id, out conflictingIds);
+        bool noConflicts = !hasPossibleConflicts || kh2FMCrowdControl.OptionConflicts[option.Id].All((id) => kh2FMCrowdControl.Options[id].IsReady());
+        Log.Message($"Has Possible Conflicts: {hasPossibleConflicts}, No Conflicts: {noConflicts}");
         return noConflicts && GetOptionForRequest(request).IsReady();
     }
 
     protected override void StartEffect(EffectRequest request)
     {
+        Log.Message($"[StartEffect] request.EffectId = {request.EffectID}");
         if (!IsReady(request))
         {
             DelayEffect(request);
@@ -82,6 +87,7 @@ public class KH2FM : PS2EffectPack
 
     protected override bool StopEffect(EffectRequest request)
     {
+        Log.Message($"[StopEffect] request.EffectId = {request.EffectID}");
         Option option = GetOptionForRequest(request);
         return option.StopEffect(Connector);
     }
