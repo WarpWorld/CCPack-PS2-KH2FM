@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using ConnectorLib;
+﻿using ConnectorLib;
 using CrowdControl.Common;
 using JetBrains.Annotations;
 using ConnectorType = CrowdControl.Common.ConnectorType;
@@ -205,7 +201,7 @@ public abstract class Option
     {
         return subCategory == SubCategory.None ? null : new EffectGrouping(subCategory.ToString());
     }
-
+  
     public abstract bool StartEffect(IPS2Connector connector);
     public virtual bool DoEffect(IPS2Connector connector) => true;
     public virtual bool StopEffect(IPS2Connector connector) => true;
@@ -415,20 +411,26 @@ public class KH2FMCrowdControl
             Category.ModelSwap, SubCategory.None, 
             EffectFunction.StartTimed, durationSeconds: 60) { }
 
-        private readonly List<int> values = new()
-            {
-                ConstantValues.KH1Sora, ConstantValues.CardSora, ConstantValues.DieSora, ConstantValues.LionSora, ConstantValues.ChristmasSora,
-                ConstantValues.SpaceParanoidsSora, ConstantValues.TimelessRiverSora, ConstantValues.Roxas, ConstantValues.DualwieldRoxas,
-                ConstantValues.MickeyRobed, ConstantValues.Mickey, ConstantValues.Minnie,
-                ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald, ConstantValues.TortoiseGoofy, 
-                // ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
-                // ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy,
-                ConstantValues.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsGoofy,
-                ConstantValues.TimelessRiverDonald, ConstantValues.TimelessRiverGoofy, ConstantValues.Beast, ConstantValues.Mulan, ConstantValues.Ping,
-                ConstantValues.Hercules, ConstantValues.Auron, ConstantValues.Aladdin, ConstantValues.JackSparrow, ConstantValues.HalloweenJack,
-                ConstantValues.ChristmasJack, ConstantValues.Simba, ConstantValues.Tron, ConstantValues.ValorFormSora, ConstantValues.WisdomFormSora,
-                ConstantValues.LimitFormSora, ConstantValues.MasterFormSora, ConstantValues.FinalFormSora, ConstantValues.AntiFormSora
-            };
+        private readonly List<int> values =
+        [
+            ConstantValues.KH1Sora, ConstantValues.CardSora, ConstantValues.DieSora, ConstantValues.LionSora,
+            ConstantValues.ChristmasSora,
+            ConstantValues.SpaceParanoidsSora, ConstantValues.TimelessRiverSora, ConstantValues.Roxas,
+            ConstantValues.DualwieldRoxas,
+            ConstantValues.MickeyRobed, ConstantValues.Mickey, ConstantValues.Minnie,
+            ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald, ConstantValues.TortoiseGoofy,
+            // ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
+            // ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy,
+            ConstantValues.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsGoofy,
+            ConstantValues.TimelessRiverDonald, ConstantValues.TimelessRiverGoofy, ConstantValues.Beast,
+            ConstantValues.Mulan, ConstantValues.Ping,
+            ConstantValues.Hercules, ConstantValues.Auron, ConstantValues.Aladdin, ConstantValues.JackSparrow,
+            ConstantValues.HalloweenJack,
+            ConstantValues.ChristmasJack, ConstantValues.Simba, ConstantValues.Tron, ConstantValues.ValorFormSora,
+            ConstantValues.WisdomFormSora,
+            ConstantValues.LimitFormSora, ConstantValues.MasterFormSora, ConstantValues.FinalFormSora,
+            ConstantValues.AntiFormSora
+        ];
 
         public override bool StartEffect(IPS2Connector connector)
         {
@@ -498,11 +500,11 @@ public class KH2FMCrowdControl
         public BackseatDriver() : base("Backseat Driver", "Trigger one of Sora's different forms.", 
             Category.Sora, SubCategory.Drive, EffectFunction.TryEffect) { }
 
-        private readonly List<uint> values = new()
-            {
-                ConstantValues.ReactionValor, ConstantValues.ReactionWisdom, ConstantValues.ReactionLimit,
-                ConstantValues.ReactionMaster, ConstantValues.ReactionFinal, //ConstantValues.ReactionAnti
-            };
+        private readonly List<uint> values =
+        [
+            ConstantValues.ReactionValor, ConstantValues.ReactionWisdom, ConstantValues.ReactionLimit,
+            ConstantValues.ReactionMaster, ConstantValues.ReactionFinal //ConstantValues.ReactionAnti
+        ];
 
         public override bool StartEffect(IPS2Connector connector)
         {
@@ -541,17 +543,21 @@ public class KH2FMCrowdControl
             Category.ModelSwap, SubCategory.None, 
             EffectFunction.StartTimed, durationSeconds: 60) { }
 
-        private readonly List<int> values = new()
-            {
-                ConstantValues.Minnie, ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald, ConstantValues.TortoiseGoofy, 
-                //ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
-                //ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy, 
-                ConstantValues.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsGoofy,
-                ConstantValues.TimelessRiverDonald, ConstantValues.TimelessRiverGoofy, ConstantValues.Beast, ConstantValues.Mulan, ConstantValues.Ping,
-                ConstantValues.Hercules, ConstantValues.Auron, ConstantValues.Aladdin, ConstantValues.JackSparrow, ConstantValues.HalloweenJack,
-                ConstantValues.ChristmasJack, ConstantValues.Simba, ConstantValues.Tron, ConstantValues.Riku, ConstantValues.AxelFriend, ConstantValues.LeonFriend,
-                ConstantValues.YuffieFriend, ConstantValues.TifaFriend, ConstantValues.CloudFriend
-            };
+        private readonly List<int> values =
+        [
+            ConstantValues.Minnie, ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald,
+            ConstantValues.TortoiseGoofy,
+            //ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
+            //ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy, 
+            ConstantValues.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsGoofy,
+            ConstantValues.TimelessRiverDonald, ConstantValues.TimelessRiverGoofy, ConstantValues.Beast,
+            ConstantValues.Mulan, ConstantValues.Ping,
+            ConstantValues.Hercules, ConstantValues.Auron, ConstantValues.Aladdin, ConstantValues.JackSparrow,
+            ConstantValues.HalloweenJack,
+            ConstantValues.ChristmasJack, ConstantValues.Simba, ConstantValues.Tron, ConstantValues.Riku,
+            ConstantValues.AxelFriend, ConstantValues.LeonFriend,
+            ConstantValues.YuffieFriend, ConstantValues.TifaFriend, ConstantValues.CloudFriend
+        ];
 
         public override bool StartEffect(IPS2Connector connector)
         {
@@ -743,13 +749,17 @@ public class KH2FMCrowdControl
             Category.ModelSwap, SubCategory.Enemy, 
             EffectFunction.StartTimed, durationSeconds: 60) { }
 
-        private readonly List<int> values = new()
-            {
-                ConstantValues.LeonEnemy, ConstantValues.YuffieEnemy, ConstantValues.TifaEnemy, ConstantValues.CloudEnemy, ConstantValues.Xemnas, ConstantValues.Xigbar,
-                ConstantValues.Xaldin, ConstantValues.Vexen, ConstantValues.VexenAntiSora, ConstantValues.Lexaeus, ConstantValues.Zexion, ConstantValues.Saix,
-                ConstantValues.AxelEnemy, ConstantValues.Demyx, ConstantValues.DemyxWaterClone, ConstantValues.Luxord, ConstantValues.Marluxia, ConstantValues.Larxene,
-                ConstantValues.RoxasEnemy, ConstantValues.RoxasShadow, ConstantValues.Sephiroth, ConstantValues.LingeringWill
-            };
+        private readonly List<int> values =
+        [
+            ConstantValues.LeonEnemy, ConstantValues.YuffieEnemy, ConstantValues.TifaEnemy, ConstantValues.CloudEnemy,
+            ConstantValues.Xemnas, ConstantValues.Xigbar,
+            ConstantValues.Xaldin, ConstantValues.Vexen, ConstantValues.VexenAntiSora, ConstantValues.Lexaeus,
+            ConstantValues.Zexion, ConstantValues.Saix,
+            ConstantValues.AxelEnemy, ConstantValues.Demyx, ConstantValues.DemyxWaterClone, ConstantValues.Luxord,
+            ConstantValues.Marluxia, ConstantValues.Larxene,
+            ConstantValues.RoxasEnemy, ConstantValues.RoxasShadow, ConstantValues.Sephiroth,
+            ConstantValues.LingeringWill
+        ];
 
         public override bool StartEffect(IPS2Connector connector)
         {
