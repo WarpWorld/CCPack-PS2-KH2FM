@@ -19,6 +19,8 @@ public class KH2FM : PS2EffectPack
 
     public KH2FM(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler)
     {
+        Log.FileOutput = true;
+
         kh2FMCrowdControl = new KH2FMCrowdControl();
         Effects = kh2FMCrowdControl.Options.Select(x => new Effect(x.Value.Name, x.Value.Id)
         {
@@ -28,7 +30,6 @@ public class KH2FM : PS2EffectPack
             Category = x.Value.GetEffectCategory(),
             Group = x.Value.GetEffectGroup(),
         }).ToList();
-        Log.Message("Pack initialization complete");
 
         Timer timer = new(1000.0);
         timer.Elapsed += (_, _) =>
@@ -44,41 +45,100 @@ public class KH2FM : PS2EffectPack
     private Option GetOptionForRequest(EffectRequest request)
     {
         string effectId = FinalCode(request);
-        Log.Message($"Effect Id: {effectId}");
+        Log.Debug($"Requested Effect Id (FinalCode): {effectId}");
+        var availableEffectIds = kh2FMCrowdControl.Options.Select((pair) => pair.Key).ToList();
+        Log.Debug("Available Effect Ids: " + string.Join(", ", availableEffectIds));
         return kh2FMCrowdControl.Options[effectId];
     }
 
     protected override bool IsReady(EffectRequest request)
     {
-        Option option = GetOptionForRequest(request);
-        /* 
-         * If none of the options that conflict with the requested option
-         * are running (are all ready), then the requested option can start.
-         * Said differently: If any option that conflicts with the requested option is
-         * currently active (not ready), then the requested option
-         * should not start.
-         * 
-        */
-        bool noConflicts = kh2FMCrowdControl.OptionConflicts[option.Id].All((id) => kh2FMCrowdControl.Options[id].IsReady());
-        return noConflicts && GetOptionForRequest(request).IsReady();
+        return true;
     }
 
     protected override void StartEffect(EffectRequest request)
     {
+        base.StartEffect(request);
         if (!IsReady(request))
         {
             DelayEffect(request);
             return;
         }
 
-        GetOptionForRequest(request).StartEffect(Connector);
+        Option option = GetOptionForRequest(request);
+
+        switch(option.effectFunction)
+        {
+            case EffectFunction.StartTimed:
+                var timed = StartTimed(
+                    request,
+                    () => true,
+                    () => true, // could do pause checking here down the road
+                    TimeSpan.FromMilliseconds(500),
+                    () => option.StartEffect(Connector),
+                    kh2FMCrowdControl.OptionConflicts[option.Id]
+                );
+                timed.WhenCompleted.Then(_ => option.StopEffect(Connector));
+                break;
+            case EffectFunction.RepeatAction:
+                var action = RepeatAction(request,
+                        () => true,
+                        () => option.StartEffect(Connector),
+                        TimeSpan.FromSeconds(1),
+                        () => true, // could do pause checking here down the road
+                        TimeSpan.FromMilliseconds(500),
+                        () => option.DoEffect(Connector),
+                        TimeSpan.FromMilliseconds(500),
+                        true,
+                        kh2FMCrowdControl.OptionConflicts[option.Id]
+                    );
+                action.WhenCompleted.Then(_ => option.StopEffect(Connector));
+                break;
+            default:
+                TryEffect(
+                    request,
+                    () => true,
+                    () => option.StartEffect(Connector),
+                    () => option.StopEffect(Connector),
+                    true,
+                    kh2FMCrowdControl.OptionConflicts[option.Id],
+                    TimeSpan.FromMilliseconds(500)
+                );
+                break;
+
+        }
     }
 
     protected override bool StopEffect(EffectRequest request)
     {
+        Log.Message($"[StopEffect] request.EffectId = {request.EffectID}");
         Option option = GetOptionForRequest(request);
-        return base.StopEffect(request) && option.StopEffect(Connector);
+        base.StopEffect(request);
+        return option.StopEffect(Connector);
     }
+
+    public override bool StopAllEffects()
+    {
+        bool success = base.StopAllEffects();
+        try
+        {
+            foreach(Option o in kh2FMCrowdControl.Options.Values)
+            {
+                success &= o.StopEffect(Connector);
+            }
+        } catch
+        {
+            success = false;
+        }
+        return success;
+    }
+}
+
+public enum EffectFunction
+{
+    TryEffect,
+    StartTimed,
+    RepeatAction
 }
 
 public abstract class Option
@@ -95,6 +155,8 @@ public abstract class Option
     private bool isActive = false;
     protected Category category = Category.None;
     protected SubCategory subCategory = SubCategory.None;
+    
+    public EffectFunction effectFunction;
 
     public string Name { get; set; }
     public string Id
@@ -110,11 +172,12 @@ public abstract class Option
 
     public int DurationSeconds { get; set; }
 
-    public Option(string name, string description, Category category, SubCategory subCategory, int cost = 50, int durationSeconds = 0)
+    public Option(string name, string description, Category category, SubCategory subCategory, EffectFunction effectFunction, int cost = 50, int durationSeconds = 0)
     {
         Name = name;
         this.category = category;
         this.subCategory = subCategory;
+        this.effectFunction = effectFunction;
         Cost = cost;
         Description = description;
         DurationSeconds = durationSeconds;
@@ -138,56 +201,10 @@ public abstract class Option
     {
         return subCategory == SubCategory.None ? null : new EffectGrouping(subCategory.ToString());
     }
-
-    public bool StartEffect(IPS2Connector connector)
-    {
-        try
-        {
-            DoEffect(connector);
-            /* 
-             * We only want to use isActive if the effect has a duration.
-             * Otherwise, it should always be ready for another use.
-            */
-            if (DurationSeconds > 0)
-            {
-                isActive = true;
-            }
-        }
-        catch (Exception e)
-        {
-            Log.Error(e);
-            return false;
-        }
-        return true;
-    }
-
-    public bool StopEffect(IPS2Connector connector)
-    {
-        try
-        {
-            UndoEffect(connector);
-            /* 
-             * Rather than check the duration here, we'll just always mark
-             * isActive as false if we successfully undid the effect.
-            */
-            isActive = false;
-            return true;
-        }
-        catch (Exception e)
-        {
-            Log.Error(e);
-            return false;
-        }
-    }
-
-    public List<string> GetConflictingOptionIds()
-    {
-        return [];
-    }
-
-    public abstract void DoEffect(IPS2Connector connector);
-
-    public abstract void UndoEffect(IPS2Connector connector);
+  
+    public abstract bool StartEffect(IPS2Connector connector);
+    public virtual bool DoEffect(IPS2Connector connector) => true;
+    public virtual bool StopEffect(IPS2Connector connector) => true;
 }
 
 public class KH2FMCrowdControl
@@ -247,15 +264,22 @@ public class KH2FMCrowdControl
                 zeroSora
             }.ToDictionary(x => x.Id, x => x);
 
+        // Used to populate mutexes
         OptionConflicts = new Dictionary<string, string[]>
             {
-                { oneShotSora.Id, [healSora.Id, invulnerability.Id] },
-                { healSora.Id, [oneShotSora.Id, invulnerability.Id] },
-                { tinyWeapon.Id, [giantWeapon.Id] },
-                { giantWeapon.Id, [tinyWeapon.Id] },
-                { expertMagician.Id, [amnesiacMagician.Id] },
-                { amnesiacMagician.Id, [expertMagician.Id] },
-                { heroSora.Id, [zeroSora.Id] },
+                { oneShotSora.Id, new [] { oneShotSora.Id, healSora.Id, invulnerability.Id } },
+                { healSora.Id, new [] { healSora.Id, oneShotSora.Id, invulnerability.Id } },
+                { tinyWeapon.Id, new [] { tinyWeapon.Id, giantWeapon.Id } },
+                { giantWeapon.Id, new [] { tinyWeapon.Id, giantWeapon.Id } },
+                { iAmDarkness.Id, new [] { iAmDarkness.Id, backseatDriver.Id, heroSora.Id, zeroSora.Id } },
+                { backseatDriver.Id, new [] { backseatDriver.Id, iAmDarkness.Id, heroSora.Id, zeroSora.Id } },
+                { expertMagician.Id, new [] { expertMagician.Id, amnesiacMagician.Id, heroSora.Id, zeroSora.Id } },
+                { amnesiacMagician.Id, new [] { amnesiacMagician.Id, expertMagician.Id, heroSora.Id, zeroSora.Id } },
+                { itemaholic.Id, new [] { itemaholic.Id, springCleaning.Id, heroSora.Id, zeroSora.Id } },
+                { springCleaning.Id, new [] { springCleaning.Id, itemaholic.Id, heroSora.Id, zeroSora.Id } },
+                { summonChauffeur.Id, new [] { summonChauffeur.Id, summonTrainer.Id, heroSora.Id, zeroSora.Id } },
+                { summonTrainer.Id, new [] { summonTrainer.Id, summonChauffeur.Id, heroSora.Id, zeroSora.Id } },
+                { heroSora.Id, new [] { heroSora.Id, zeroSora.Id, itemaholic.Id, springCleaning.Id, summonChauffeur.Id, summonTrainer.Id, expertMagician.Id, amnesiacMagician.Id } },
             };
     }
 
@@ -292,107 +316,100 @@ public class KH2FMCrowdControl
     #region Option Implementations
     private class OneShotSora : Option
     {
-        public OneShotSora() : base("1 Shot Sora", "Set Sora's Max and Current HP to 1.", Category.Sora, SubCategory.Stats, durationSeconds: 60) { }
+        public OneShotSora() : base("1 Shot Sora", "Set Sora's Max and Current HP to 1.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private uint currentHP;
         private uint maxHP;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            // Capture the original data so it can be reset
-            connector.Read32LE(ConstantAddresses.HP, out currentHP);
-            connector.Read32LE(ConstantAddresses.MaxHP, out maxHP);
-
-            connector.Write32LE(ConstantAddresses.HP, 1);
-            connector.Write32LE(ConstantAddresses.MaxHP, 1);
+            return connector.Write32LE(ConstantAddresses.HP, currentHP)
+                && connector.Write32LE(ConstantAddresses.MaxHP, maxHP);
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Write32LE(ConstantAddresses.HP, currentHP);
-            connector.Write32LE(ConstantAddresses.MaxHP, maxHP);
+            bool success = true;
+            // Capture the original data so it can be reset
+            success &= connector.Read32LE(ConstantAddresses.HP, out currentHP);
+            success &= connector.Read32LE(ConstantAddresses.MaxHP, out maxHP);
+
+            success &= connector.Write32LE(ConstantAddresses.HP, 1);
+            success &= connector.Write32LE(ConstantAddresses.MaxHP, 1);
+
+            return success;
         }
     }
 
     private class HealSora : Option
     {
-        public HealSora() : base("Heal Sora", "Heal Sora to Max HP.", Category.Sora, SubCategory.Stats) { }
+        public HealSora() : base("Heal Sora", "Heal Sora to Max HP.", Category.Sora, SubCategory.Stats, EffectFunction.TryEffect) { }
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read32LE(ConstantAddresses.MaxHP, out uint maxHP);
-
-            connector.Write32LE(ConstantAddresses.HP, maxHP);
+            return connector.Read32LE(ConstantAddresses.MaxHP, out uint maxHP)
+                && connector.Write32LE(ConstantAddresses.HP, maxHP);
         }
-
-        public override void UndoEffect(IPS2Connector connector) { }
     }
 
     private class Invulnerability : Option
     {
         private uint currentHP;
         private uint maxHP;
-        private Timer? timer;
 
-        public Invulnerability() : base("Invulnerability", "Set Sora to be invulnerable.", Category.Sora, SubCategory.Stats, durationSeconds: 60) { }
+        public Invulnerability() : base("Invulnerability", "Set Sora to be invulnerable.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.RepeatAction, durationSeconds: 60) { }
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read32LE(ConstantAddresses.HP, out currentHP);
-            connector.Read32LE(ConstantAddresses.MaxHP, out maxHP);
-
-            // Max out health ever half-second
-            timer = new Timer(500);
-            timer.Elapsed += (_, _) =>
-            {
-                connector.Write32LE(ConstantAddresses.HP, 999);
-                connector.Write32LE(ConstantAddresses.MaxHP, 999);
-            };
+            return connector.Read32LE(ConstantAddresses.HP, out currentHP)
+                && connector.Read32LE(ConstantAddresses.MaxHP, out maxHP);
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool DoEffect(IPS2Connector connector)
         {
-            connector.Write32LE(ConstantAddresses.HP, currentHP);
-            connector.Write32LE(ConstantAddresses.MaxHP, maxHP);
-            // Clear timer
-            if (timer != null)
-            {
-                timer.Stop();
-                timer = null;
-            }
+            return connector.Write32LE(ConstantAddresses.HP, 999)
+                && connector.Write32LE(ConstantAddresses.MaxHP, 999);
+        }
+
+        public override bool StopEffect(IPS2Connector connector)
+        {
+            return connector.Write32LE(ConstantAddresses.HP, currentHP)
+                && connector.Write32LE(ConstantAddresses.MaxHP, maxHP);
         }
     }
 
     private class MoneybagsSora : Option
     {
-        public MoneybagsSora() : base("Munnybags Sora", "Give Sora 9999 Munny.", Category.Sora, SubCategory.Munny) { }
-        public override void DoEffect(IPS2Connector connector)
+        public MoneybagsSora() : base("Munnybags Sora", "Give Sora 9999 Munny.", Category.Sora, SubCategory.Munny, EffectFunction.TryEffect) { }
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read32LE(ConstantAddresses.Munny, out uint munny);
+            bool success = connector.Read32LE(ConstantAddresses.Munny, out uint munny);
 
             int newAmount = (int)munny + 9999;
 
-            connector.Write32LE(ConstantAddresses.Munny, (uint)newAmount);
+            return success && connector.Write32LE(ConstantAddresses.Munny, (uint)newAmount);
         }
-
-        public override void UndoEffect(IPS2Connector connector) { }
     }
 
     private class RobSora : Option
     {
-        public RobSora() : base("Rob Sora", "Take all of Sora's Munny.", Category.Sora, SubCategory.Stats) { }
+        public RobSora() : base("Rob Sora", "Take all of Sora's Munny.", Category.Sora, SubCategory.Stats, EffectFunction.TryEffect) { }
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Write32LE(ConstantAddresses.Munny, 0);
+            return connector.Write32LE(ConstantAddresses.Munny, 0);
         }
-
-        public override void UndoEffect(IPS2Connector connector) { }
     }
 
     private class WhoAmI : Option
     {
-        public WhoAmI() : base("Who Am I?", "Set Sora to a different character.", Category.ModelSwap, SubCategory.None, durationSeconds: 60) { }
+        public WhoAmI() : base("Who Am I?", "Set Sora to a different character.", 
+            Category.ModelSwap, SubCategory.None, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private readonly List<int> values =
         [
@@ -415,25 +432,26 @@ public class KH2FMCrowdControl
             ConstantValues.AntiFormSora
         ];
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             ushort randomModel = (ushort)values[new Random().Next(values.Count)];
             Log.Message($"Random Model value: {randomModel}");
 
-            connector.Read16LE(ConstantAddresses.Sora, out ushort currentSora);
+            success &= connector.Read16LE(ConstantAddresses.Sora, out ushort currentSora);
             Log.Message($"Sora's current model value: {currentSora}");
 
 
-            connector.Write16LE(ConstantAddresses.Sora, randomModel);
+            success &= connector.Write16LE(ConstantAddresses.Sora, randomModel);
 
-            connector.Read16LE(ConstantAddresses.Sora, out ushort newSora);
+            success &= connector.Read16LE(ConstantAddresses.Sora, out ushort newSora);
             Log.Message($"Sora's current model value: {newSora}");
 
 
-            connector.Write16LE(ConstantAddresses.LionSora, randomModel);
-            connector.Write16LE(ConstantAddresses.ChristmasSora, randomModel);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, randomModel);
-            connector.Write16LE(ConstantAddresses.TimelessRiverSora, randomModel);
+            success &= connector.Write16LE(ConstantAddresses.LionSora, randomModel);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasSora, randomModel);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, randomModel);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverSora, randomModel);
 
             // TODO Figure out how to swap to Sora
             //int randomIndex = new Random().Next(values.Count);
@@ -459,23 +477,28 @@ public class KH2FMCrowdControl
             //    connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
             //};
             //timer.Start();
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write16LE(ConstantAddresses.Sora, (ushort)ConstantValues.Sora);
-            connector.Write16LE(ConstantAddresses.LionSora, (ushort)ConstantValues.LionSora);
-            connector.Write16LE(ConstantAddresses.ChristmasSora, (ushort)ConstantValues.ChristmasSora);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, (ushort)ConstantValues.SpaceParanoidsSora);
-            connector.Write16LE(ConstantAddresses.TimelessRiverSora, (ushort)ConstantValues.TimelessRiverSora);
+            bool success = true;
+            success &= connector.Write16LE(ConstantAddresses.Sora, (ushort)ConstantValues.Sora);
+            success &= connector.Write16LE(ConstantAddresses.LionSora, (ushort)ConstantValues.LionSora);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasSora, (ushort)ConstantValues.ChristmasSora);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, (ushort)ConstantValues.SpaceParanoidsSora);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverSora, (ushort)ConstantValues.TimelessRiverSora);
 
             //connector.Write16LE(ConstantAddresses.ValorFormSora, ConstantValues.ValorFormSora);
+            return success;
         }
     }
 
     private class BackseatDriver : Option
     {
-        public BackseatDriver() : base("Backseat Driver", "Trigger one of Sora's different form.", Category.Sora, SubCategory.Drive) { }
+        public BackseatDriver() : base("Backseat Driver", "Trigger one of Sora's different forms.", 
+            Category.Sora, SubCategory.Drive, EffectFunction.TryEffect) { }
 
         private readonly List<uint> values =
         [
@@ -483,20 +506,22 @@ public class KH2FMCrowdControl
             ConstantValues.ReactionMaster, ConstantValues.ReactionFinal //ConstantValues.ReactionAnti
         ];
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Get us out of a Drive first if we are in one
-            connector.WriteFloat(ConstantAddresses.DriveTime, ConstantValues.None);
+            success &= connector.WriteFloat(ConstantAddresses.DriveTime, ConstantValues.None);
             Thread.Sleep(200);
 
             int randomIndex = new Random().Next(values.Count);
 
-            connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
+            success &= connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
 
-            connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)values[randomIndex]);
+            success &= connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)values[randomIndex]);
 
-            connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
+            success &= connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
 
+            // Might be able to move this to RepeatAction?
             Timer timer = new(100);
             timer.Elapsed += (_, _) =>
             {
@@ -507,17 +532,16 @@ public class KH2FMCrowdControl
                 connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
             };
             timer.Start();
-        }
 
-        public override void UndoEffect(IPS2Connector connector)
-        {
-            // Nothing to do here since they can revert back or wait for the timer to run out
+            return success;
         }
     }
 
     private class WhoAreThey : Option
     {
-        public WhoAreThey() : base("Who Are They?", "Set Donald and Goofy to different characters.", Category.ModelSwap, SubCategory.None, durationSeconds: 60) { }
+        public WhoAreThey() : base("Who Are They?", "Set Donald and Goofy to different characters.", 
+            Category.ModelSwap, SubCategory.None, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private readonly List<int> values =
         [
@@ -535,171 +559,195 @@ public class KH2FMCrowdControl
             ConstantValues.YuffieFriend, ConstantValues.TifaFriend, ConstantValues.CloudFriend
         ];
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             ushort donald = (ushort)values[new Random().Next(values.Count)];
             ushort goofy = (ushort)values[new Random().Next(values.Count)];
 
-            connector.Write16LE(ConstantAddresses.Donald, donald);
-            connector.Write16LE(ConstantAddresses.BirdDonald, donald);
-            connector.Write16LE(ConstantAddresses.ChristmasDonald, donald);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, donald);
-            connector.Write16LE(ConstantAddresses.TimelessRiverDonald, donald);
+            success &= connector.Write16LE(ConstantAddresses.Donald, donald);
+            success &= connector.Write16LE(ConstantAddresses.BirdDonald, donald);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasDonald, donald);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, donald);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverDonald, donald);
 
 
-            connector.Write16LE(ConstantAddresses.Goofy, goofy);
-            connector.Write16LE(ConstantAddresses.TortoiseGoofy, goofy);
-            connector.Write16LE(ConstantAddresses.ChristmasGoofy, goofy);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, goofy);
-            connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.Goofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.TortoiseGoofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasGoofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, goofy);
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write16LE(ConstantAddresses.Donald, ConstantValues.Donald);
-            connector.Write16LE(ConstantAddresses.BirdDonald, ConstantValues.BirdDonald);
-            connector.Write16LE(ConstantAddresses.ChristmasDonald, ConstantValues.ChristmasDonald);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsDonald);
-            connector.Write16LE(ConstantAddresses.TimelessRiverDonald, ConstantValues.TimelessRiverDonald);
+            bool success = true;
+            success &= connector.Write16LE(ConstantAddresses.Donald, ConstantValues.Donald);
+            success &= connector.Write16LE(ConstantAddresses.BirdDonald, ConstantValues.BirdDonald);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasDonald, ConstantValues.ChristmasDonald);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsDonald);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverDonald, ConstantValues.TimelessRiverDonald);
 
 
-            connector.Write16LE(ConstantAddresses.Goofy, ConstantValues.Goofy);
-            connector.Write16LE(ConstantAddresses.TortoiseGoofy, ConstantValues.TortoiseGoofy);
-            connector.Write16LE(ConstantAddresses.ChristmasGoofy, ConstantValues.ChristmasGoofy);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, ConstantValues.SpaceParanoidsGoofy);
-            connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, ConstantValues.TimelessRiverGoofy);
+            success &= connector.Write16LE(ConstantAddresses.Goofy, ConstantValues.Goofy);
+            success &= connector.Write16LE(ConstantAddresses.TortoiseGoofy, ConstantValues.TortoiseGoofy);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasGoofy, ConstantValues.ChristmasGoofy);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, ConstantValues.SpaceParanoidsGoofy);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, ConstantValues.TimelessRiverGoofy);
+
+            return success;
         }
     }
 
     private class SlowgaSora : Option
     {
-        public SlowgaSora() : base("Slowga Sora", "Set Sora's Speed to be super slow.", Category.Sora, SubCategory.None, durationSeconds: 30) { }
+        public SlowgaSora() : base("Slowga Sora", "Set Sora's Speed to be super slow.", 
+            Category.Sora, SubCategory.None, 
+            EffectFunction.StartTimed,durationSeconds: 30) { }
 
         private uint speed;
         private uint speedAlt = 0;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read32LE(ConstantAddresses.Speed, out speed);
-
-            connector.Write32LE(ConstantAddresses.Speed, ConstantValues.SlowDownx2);
+            return connector.Read32LE(ConstantAddresses.Speed, out speed)
+                && connector.Write32LE(ConstantAddresses.Speed, ConstantValues.SlowDownx2);
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write32LE(ConstantAddresses.Speed, speed);
+            return connector.Write32LE(ConstantAddresses.Speed, speed);
         }
     }
 
     private class HastegaSora : Option
     {
-        public HastegaSora() : base("Hastega Sora", "Set Sora's Speed to be super fast.", Category.Sora, SubCategory.Stats, durationSeconds: 30) { }
+        public HastegaSora() : base("Hastega Sora", "Set Sora's Speed to be super fast.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.StartTimed, durationSeconds: 30) { }
 
         private uint speed;
         private uint speedAlt = 0;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read32LE(ConstantAddresses.Speed, out speed);
-
-            connector.Write32LE(ConstantAddresses.Speed, ConstantValues.SpeedUpx2);
+            return connector.Read32LE(ConstantAddresses.Speed, out speed) 
+                && connector.Write32LE(ConstantAddresses.Speed, ConstantValues.SpeedUpx2);
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write32LE(ConstantAddresses.Speed, speed);
+            return connector.Write32LE(ConstantAddresses.Speed, speed);
         }
     }
 
     // NEEDS WORK -- DOESNT SEEM TO DO ANYTHING
     private class SpaceJump : Option
     {
-        public SpaceJump() : base("Space Jump", "Give Sora the ability to Space Jump.", Category.Sora, SubCategory.None, durationSeconds: 60) { }
+        public SpaceJump() : base("Space Jump", "Give Sora the ability to Space Jump.", 
+            Category.Sora, SubCategory.None, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private uint jump;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
             // Store original jump amount for the reset
-            connector.Read32LE(ConstantAddresses.JumpAmount, out jump);
-
-            connector.Write32LE(ConstantAddresses.JumpAmount, 0);
+            return connector.Read32LE(ConstantAddresses.JumpAmount, out jump)
+                && connector.Write32LE(ConstantAddresses.JumpAmount, 0);
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write32LE(ConstantAddresses.JumpAmount, jump);
+            return connector.Write32LE(ConstantAddresses.JumpAmount, jump);
         }
     }
 
     private class TinyWeapon : Option
     {
-        public TinyWeapon() : base("Tiny Weapon", "Set Sora's Weapon size to be tiny.", Category.Sora, SubCategory.None, durationSeconds: 60) { }
+        public TinyWeapon() : base("Tiny Weapon", "Set Sora's Weapon size to be tiny.", 
+            Category.Sora, SubCategory.None, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private uint currentWeaponSize;
         private uint currentWeaponSizeAlt = 0;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read32LE(ConstantAddresses.WeaponSize, out currentWeaponSize);
-            // The WeaponSizeAlt address seems to be some sort of transform value for the player character. Modifying it moves the player further away from the camera.
+            bool success = true;
+            success &= connector.Read32LE(ConstantAddresses.WeaponSize, out currentWeaponSize);
+            // The WeaponSizeAlt address seems to be some sort of transform value for the player character.
+            // Modifying it moves the player further away from the camera.
             //connector.Read32LE(ConstantAddresses.WeaponSizeAlt, out currentWeaponSizeAlt);
 
-            connector.Write32LE(ConstantAddresses.WeaponSize, ConstantValues.TinyWeapon);
+            success &= connector.Write32LE(ConstantAddresses.WeaponSize, ConstantValues.TinyWeapon);
             //connector.Write32LE(ConstantAddresses.WeaponSizeAlt, ConstantValues.TinyWeapon);
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write32LE(ConstantAddresses.WeaponSize, currentWeaponSize);
+            return connector.Write32LE(ConstantAddresses.WeaponSize, currentWeaponSize);
             //connector.Write32LE(ConstantAddresses.WeaponSizeAlt, currentWeaponSizeAlt);
         }
     }
 
     private class GiantWeapon : Option
     {
-        public GiantWeapon() : base("Giant Weapon", "Set Sora's Weapon size to be huge.", Category.Sora, SubCategory.None, durationSeconds: 60) { }
+        public GiantWeapon() : base("Giant Weapon", "Set Sora's Weapon size to be huge.", 
+            Category.Sora, SubCategory.None, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private uint currentWeaponSize;
         private uint currentWeaponSizeAlt = 0;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read32LE(ConstantAddresses.WeaponSize, out currentWeaponSize);
+            bool success = true;
+            success &= connector.Read32LE(ConstantAddresses.WeaponSize, out currentWeaponSize);
             //connector.Read32LE(ConstantAddresses.WeaponSizeAlt, out currentWeaponSizeAlt);
 
-            connector.Write32LE(ConstantAddresses.WeaponSize, ConstantValues.BigWeapon);
+            success &= connector.Write32LE(ConstantAddresses.WeaponSize, ConstantValues.BigWeapon);
             //connector.Write32LE(ConstantAddresses.WeaponSizeAlt, ConstantValues.TinyWeapon);
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write32LE(ConstantAddresses.WeaponSize, currentWeaponSize);
+            return connector.Write32LE(ConstantAddresses.WeaponSize, currentWeaponSize);
             //connector.Write32LE(ConstantAddresses.WeaponSizeAlt, currentWeaponSizeAlt);
         }
     }
 
     private class Struggling : Option
     {
-        public Struggling() : base("Struggling", "Change Sora's weapon to the Struggle Bat.", Category.Sora, SubCategory.Weapon, durationSeconds: 60) { }
+        public Struggling() : base("Struggling", "Change Sora's weapon to the Struggle Bat.", 
+            Category.Sora, SubCategory.Weapon, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private ushort currentKeyblade;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read16LE(ConstantAddresses.SoraWeaponSlot, out currentKeyblade);
-            connector.Write16LE(ConstantAddresses.SoraWeaponSlot, ConstantValues.StruggleBat);
+            return connector.Read16LE(ConstantAddresses.SoraWeaponSlot, out currentKeyblade) && 
+                connector.Write16LE(ConstantAddresses.SoraWeaponSlot, ConstantValues.StruggleBat);
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write16LE(ConstantAddresses.SoraWeaponSlot, currentKeyblade);
+            return connector.Write16LE(ConstantAddresses.SoraWeaponSlot, currentKeyblade);
         }
     }
 
     private class HostileParty : Option
     {
-        public HostileParty() : base("Hostile Party", "Set Donald and Goofy to random enemies.", Category.ModelSwap, SubCategory.Enemy, durationSeconds: 60) { }
+        public HostileParty() : base("Hostile Party", "Set Donald and Goofy to random enemies.", 
+            Category.ModelSwap, SubCategory.Enemy, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private readonly List<int> values =
         [
@@ -713,57 +761,67 @@ public class KH2FMCrowdControl
             ConstantValues.LingeringWill
         ];
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
+
             ushort donald = (ushort)values[new Random().Next(values.Count)];
             ushort goofy = (ushort)values[new Random().Next(values.Count)];
 
-            connector.Write16LE(ConstantAddresses.Donald, donald);
+            success &= connector.Write16LE(ConstantAddresses.Donald, donald);
             connector.Write16LE(ConstantAddresses.BirdDonald, donald);
             connector.Write16LE(ConstantAddresses.ChristmasDonald, donald);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, donald);
-            connector.Write16LE(ConstantAddresses.TimelessRiverDonald, donald);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, donald);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverDonald, donald);
+            
 
+            success &= connector.Write16LE(ConstantAddresses.Goofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.TortoiseGoofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasGoofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, goofy);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, goofy);
 
-            connector.Write16LE(ConstantAddresses.Goofy, goofy);
-            connector.Write16LE(ConstantAddresses.TortoiseGoofy, goofy);
-            connector.Write16LE(ConstantAddresses.ChristmasGoofy, goofy);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, goofy);
-            connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, goofy);
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write16LE(ConstantAddresses.Donald, ConstantValues.Donald);
-            connector.Write16LE(ConstantAddresses.BirdDonald, ConstantValues.BirdDonald);
-            connector.Write16LE(ConstantAddresses.ChristmasDonald, ConstantValues.ChristmasDonald);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsDonald);
-            connector.Write16LE(ConstantAddresses.TimelessRiverDonald, ConstantValues.TimelessRiverDonald);
+            bool success = true;
+            success &= connector.Write16LE(ConstantAddresses.Donald, ConstantValues.Donald);
+            success &= connector.Write16LE(ConstantAddresses.BirdDonald, ConstantValues.BirdDonald);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasDonald, ConstantValues.ChristmasDonald);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsDonald);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverDonald, ConstantValues.TimelessRiverDonald);
+            
 
+            success &= connector.Write16LE(ConstantAddresses.Goofy, ConstantValues.Goofy);
+            success &= connector.Write16LE(ConstantAddresses.TortoiseGoofy, ConstantValues.TortoiseGoofy);
+            success &= connector.Write16LE(ConstantAddresses.ChristmasGoofy, ConstantValues.ChristmasGoofy);
+            success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, ConstantValues.SpaceParanoidsGoofy);
+            success &= connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, ConstantValues.TimelessRiverGoofy);
 
-            connector.Write16LE(ConstantAddresses.Goofy, ConstantValues.Goofy);
-            connector.Write16LE(ConstantAddresses.TortoiseGoofy, ConstantValues.TortoiseGoofy);
-            connector.Write16LE(ConstantAddresses.ChristmasGoofy, ConstantValues.ChristmasGoofy);
-            connector.Write16LE(ConstantAddresses.SpaceParanoidsGoofy, ConstantValues.SpaceParanoidsGoofy);
-            connector.Write16LE(ConstantAddresses.TimelessRiverGoofy, ConstantValues.TimelessRiverGoofy);
+            return success;
         }
     }
 
     private class IAmDarkness : Option
     {
-        public IAmDarkness() : base("I Am Darkness", "Change Sora to Antiform Sora.", Category.ModelSwap, SubCategory.None) { }
+        public IAmDarkness() : base("I Am Darkness", "Change Sora to Antiform Sora.", 
+            Category.ModelSwap, SubCategory.None, EffectFunction.TryEffect) { }
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
+
             // Get us out of a Drive first if we are in one
-            connector.WriteFloat(ConstantAddresses.DriveTime, ConstantValues.None);
+            success &= connector.WriteFloat(ConstantAddresses.DriveTime, ConstantValues.None);
             Thread.Sleep(200);
 
-            connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
+            success &= connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
 
-            connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)ConstantValues.ReactionAnti);
+            success &= connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)ConstantValues.ReactionAnti);
 
-            connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
+            success &= connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
 
             Timer timer = new(100);
             timer.Elapsed += (_, _) =>
@@ -776,6 +834,8 @@ public class KH2FMCrowdControl
             };
             timer.Start();
 
+            return success;
+
             //connector.Write16LE(ConstantAddresses.Sora, (ushort)ConstantValues.AntiFormSora);
             ////connector.Write16LE(ConstantAddresses.HalloweenSora, (ushort)ConstantValues.AntiFormSora);
             //connector.Write16LE(ConstantAddresses.ChristmasSora, (ushort)ConstantValues.AntiFormSora);
@@ -784,7 +844,7 @@ public class KH2FMCrowdControl
             //connector.Write16LE(ConstantAddresses.TimelessRiverSora, (ushort)ConstantValues.AntiFormSora);
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
             //connector.Write16LE(ConstantAddresses.Sora, (ushort)ConstantValues.Sora);
             ////connector.Write16LE(ConstantAddresses.HalloweenSora, (ushort)ConstantValues.HalloweenSora);
@@ -792,20 +852,17 @@ public class KH2FMCrowdControl
             //connector.Write16LE(ConstantAddresses.LionSora, (ushort)ConstantValues.LionSora);
             //connector.Write16LE(ConstantAddresses.SpaceParanoidsSora, (ushort)ConstantValues.SpaceParanoidsSora);
             //connector.Write16LE(ConstantAddresses.TimelessRiverSora, (ushort)ConstantValues.TimelessRiverSora);
+            return true;
         }
     }
 
     // NEEDS IMPLEMENTATION
     private class KillSora : Option
     {
-        public KillSora() : base("Kill Sora", "Instantly Kill Sora.", Category.Sora, SubCategory.Stats) { }
+        public KillSora() : base("Kill Sora", "Instantly Kill Sora.", 
+            Category.Sora, SubCategory.Stats, EffectFunction.TryEffect) { }
 
-        public override void DoEffect(IPS2Connector connector)
-        {
-            throw new NotImplementedException();
-        }
-
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
             throw new NotImplementedException();
         }
@@ -814,19 +871,20 @@ public class KH2FMCrowdControl
     // NEEDS IMPLEMENTATION
     private class RandomizeControls : Option
     {
-        public RandomizeControls() : base("Randomize Controls", "Randomize the controls to the game.", Category.None, SubCategory.None) { }
+        public RandomizeControls() : base("Randomize Controls", "Randomize the controls to the game.", 
+            Category.None, SubCategory.None, EffectFunction.StartTimed) { }
 
         private Dictionary<uint, uint> controls = new()
         {
             //{ ConstantAddresses.Control, 0 },
         };
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
             throw new NotImplementedException();
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
             throw new NotImplementedException();
         }
@@ -834,7 +892,9 @@ public class KH2FMCrowdControl
 
     private class ShuffleShortcuts : Option
     {
-        public ShuffleShortcuts() : base("Shuffle Shortcuts", "Set Sora's Shortcuts to random commands.", Category.Sora, SubCategory.None, durationSeconds: 60) { }
+        public ShuffleShortcuts() : base("Shuffle Shortcuts", "Set Sora's Shortcuts to random commands.", 
+            Category.Sora, SubCategory.None, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private readonly Random random = new();
         private readonly Dictionary<int, Tuple<int, int>> values = new()
@@ -858,43 +918,44 @@ public class KH2FMCrowdControl
         private ulong shortcut3_set;
         private ulong shortcut4_set;
 
-        private int CheckQuickSlot(IPS2Connector connector, int key, Tuple<int, int> value, int shortcutNumber)
+        private (int, bool) CheckQuickSlot(IPS2Connector connector, int key, Tuple<int, int> value, int shortcutNumber)
         {
+            bool success = true;
             if (key != ConstantAddresses.Fire && key != ConstantAddresses.Blizzard && key != ConstantAddresses.Thunder &&
                 key != ConstantAddresses.Cure && key != ConstantAddresses.Reflect && key != ConstantAddresses.Magnet)
             {
-                connector.Read16LE((ulong)key, out ushort itemValue);
+                success &= connector.Read16LE((ulong)key, out ushort itemValue);
 
-                connector.Write16LE((ulong)key, (ushort)(itemValue + 1));
+                success &= connector.Write16LE((ulong)key, (ushort)(itemValue + 1));
 
                 switch (shortcutNumber)
                 {
                     case 1:
                         shortcut1_set = (ulong)key;
-                        connector.Write16LE(ConstantAddresses.SoraItemSlot1, (ushort)(value.Item2));
+                        success &= connector.Write16LE(ConstantAddresses.SoraItemSlot1, (ushort)(value.Item2));
                         break;
                     case 2:
                         shortcut2_set = (ulong)key;
-                        connector.Write16LE(ConstantAddresses.SoraItemSlot2, (ushort)(value.Item2));
+                        success &= connector.Write16LE(ConstantAddresses.SoraItemSlot2, (ushort)(value.Item2));
                         break;
                     case 3:
                         shortcut3_set = (ulong)key;
-                        connector.Write16LE(ConstantAddresses.SoraItemSlot3, (ushort)(value.Item2));
+                        success &= connector.Write16LE(ConstantAddresses.SoraItemSlot3, (ushort)(value.Item2));
                         break;
                     case 4:
                         shortcut4_set = (ulong)key;
-                        connector.Write16LE(ConstantAddresses.SoraItemSlot4, (ushort)(value.Item2));
+                        success &= connector.Write16LE(ConstantAddresses.SoraItemSlot4, (ushort)(value.Item2));
                         break;
                 }
 
-                return value.Item1;
+                return (value.Item1, success);
             }
 
-            connector.Read8((ulong)key, out byte byteValue);
+            success &= connector.Read8((ulong)key, out byte byteValue);
 
             if (byteValue == 0)
             {
-                connector.Write8((ulong)key, (byte)value.Item2);
+                success &= connector.Write8((ulong)key, (byte)value.Item2);
 
                 switch (shortcutNumber)
                 {
@@ -914,134 +975,152 @@ public class KH2FMCrowdControl
             }
 
             if (key == ConstantAddresses.Fire)
-                return ConstantValues.FireQuickSlotValue;
+                return (ConstantValues.FireQuickSlotValue, success);
             if (key == ConstantAddresses.Blizzard)
-                return ConstantValues.BlizzardQuickSlotValue;
+                return (ConstantValues.BlizzardQuickSlotValue, success);
             if (key == ConstantAddresses.Thunder)
-                return ConstantValues.ThunderQuickSlotValue;
+                return (ConstantValues.ThunderQuickSlotValue, success);
             if (key == ConstantAddresses.Cure)
-                return ConstantValues.CureQuickSlotValue;
+                return (ConstantValues.CureQuickSlotValue, success);
             if (key == ConstantAddresses.Reflect)
-                return ConstantValues.ReflectQuickSlotValue;
+                return (ConstantValues.ReflectQuickSlotValue, success);
             if (key == ConstantAddresses.Magnet)
-                return ConstantValues.MagnetQuickSlotValue;
+                return (ConstantValues.MagnetQuickSlotValue, success);
 
-            return ConstantValues.None;
+            return (ConstantValues.None, success);
         }
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Save the values before the shuffle
-            connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot1, out shortcut1);
-            connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot2, out shortcut2);
-            connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot3, out shortcut3);
-            connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot4, out shortcut4);
+            success &= connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot1, out shortcut1);
+            success &= connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot2, out shortcut2);
+            success &= connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot3, out shortcut3);
+            success &= connector.Read16LE(ConstantAddresses.SoraQuickMenuSlot4, out shortcut4);
 
             int key1 = values.Keys.ToList()[random.Next(values.Keys.Count)];
             int key2 = values.Keys.ToList()[random.Next(values.Keys.Count)];
             int key3 = values.Keys.ToList()[random.Next(values.Keys.Count)];
             int key4 = values.Keys.ToList()[random.Next(values.Keys.Count)];
 
-            int value1 = CheckQuickSlot(connector, key1, values[key1], 1);
-            int value2 = CheckQuickSlot(connector, key2, values[key2], 2);
-            int value3 = CheckQuickSlot(connector, key3, values[key3], 3);
-            int value4 = CheckQuickSlot(connector, key4, values[key4], 4);
+            (int value1, bool success1) = CheckQuickSlot(connector, key1, values[key1], 1);
+            (int value2, bool success2) = CheckQuickSlot(connector, key2, values[key2], 2);
+            (int value3, bool success3) = CheckQuickSlot(connector, key3, values[key3], 3);
+            (int value4, bool success4) = CheckQuickSlot(connector, key4, values[key4], 4);
 
-            connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot1, (ushort)value1);
-            connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot2, (ushort)value2);
-            connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot3, (ushort)value3);
-            connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot4, (ushort)value4);
+            success &= success1 && success2 && success3 && success4;
+
+            success &= connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot1, (ushort)value1);
+            success &= connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot2, (ushort)value2);
+            success &= connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot3, (ushort)value3);
+            success &= connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot4, (ushort)value4);
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot1, shortcut1);
-            connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot2, shortcut2);
-            connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot3, shortcut3);
-            connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot4, shortcut4);
+            bool success = true;
+            success &= connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot1, shortcut1);
+            success &= connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot2, shortcut2);
+            success &= connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot3, shortcut3);
+            success &= connector.Write16LE(ConstantAddresses.SoraQuickMenuSlot4, shortcut4);
 
             if (shortcut1_set != 0)
             {
-                connector.Write8(shortcut1_set, 0);
+                success &= connector.Write8(shortcut1_set, 0);
                 shortcut1_set = 0;
             }
             if (shortcut2_set != 0)
             {
-                connector.Write8(shortcut2_set, 0);
+                success &= connector.Write8(shortcut2_set, 0);
                 shortcut2_set = 0;
             }
             if (shortcut3_set != 0)
             {
-                connector.Write8(shortcut3_set, 0);
+                success &= connector.Write8(shortcut3_set, 0);
                 shortcut3_set = 0;
             }
             if (shortcut4_set != 0)
             {
-                connector.Write8(shortcut4_set, 0);
+                success &= connector.Write8(shortcut4_set, 0);
                 shortcut4_set = 0;
             }
+
+            return success;
         }
     }
 
     private class GrowthSpurt : Option
     {
-        public GrowthSpurt() : base("Growth Spurt", "Give Sora Max Growth abilities.", Category.Sora, SubCategory.Stats, durationSeconds: 60) { }
+        public GrowthSpurt() : base("Growth Spurt", "Give Sora Max Growth abilities.", Category.Sora, SubCategory.Stats, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private uint startAddress;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             Log.Message("GrowthSpurt");
             // Sora has 148 (maybe divided by 2?) slots available for abilities
             for (uint i = ConstantAddresses.SoraAbilityStart; i < (ConstantAddresses.SoraAbilityStart + 148); i += 2)
             {
-                connector.Read8(i, out byte value);
+                success &= connector.Read8(i, out byte value);
 
                 if (value != 0) continue;
 
                 startAddress = i;
 
-                connector.Write8(startAddress, (byte)ConstantValues.HighJumpMax);
-                connector.Write8(startAddress + 1, 0x80);
+                success &= connector.Write8(startAddress, (byte)ConstantValues.HighJumpMax);
+                success &= connector.Write8(startAddress + 1, 0x80);
 
-                connector.Write8(startAddress + 2, (byte)ConstantValues.QuickRunMax);
-                connector.Write8(startAddress + 3, 0x80);
+                success &= connector.Write8(startAddress + 2, (byte)ConstantValues.QuickRunMax);
+                success &= connector.Write8(startAddress + 3, 0x80);
 
-                connector.Write8(startAddress + 4, (byte)ConstantValues.DodgeRollMax);
-                connector.Write8(startAddress + 5, 0x82);
+                success &= connector.Write8(startAddress + 4, (byte)ConstantValues.DodgeRollMax);
+                success &= connector.Write8(startAddress + 5, 0x82);
 
-                connector.Write8(startAddress + 6, (byte)ConstantValues.AerialDodgeMax);
-                connector.Write8(startAddress + 7, 0x80);
+                success &= connector.Write8(startAddress + 6, (byte)ConstantValues.AerialDodgeMax);
+                success &= connector.Write8(startAddress + 7, 0x80);
 
-                connector.Write8(startAddress + 8, (byte)ConstantValues.GlideMax);
-                connector.Write8(startAddress + 9, 0x80);
+                success &= connector.Write8(startAddress + 8, (byte)ConstantValues.GlideMax);
+                success &= connector.Write8(startAddress + 9, 0x80);
 
                 break;
             }
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write8(startAddress, 0);
-            connector.Write8(startAddress + 1, 0);
+            bool success = true;
 
-            connector.Write8(startAddress + 2, 0);
-            connector.Write8(startAddress + 3, 0);
+            success &= connector.Write8(startAddress, 0);
+            success &= connector.Write8(startAddress + 1, 0);
 
-            connector.Write8(startAddress + 4, 0);
-            connector.Write8(startAddress + 5, 0);
+            success &= connector.Write8(startAddress + 2, 0);
+            success &= connector.Write8(startAddress + 3, 0);
 
-            connector.Write8(startAddress + 6, 0);
-            connector.Write8(startAddress + 7, 0);
+            success &= connector.Write8(startAddress + 4, 0);
+            success &= connector.Write8(startAddress + 5, 0);
 
-            connector.Write8(startAddress + 8, 0);
-            connector.Write8(startAddress + 9, 0);
+            success &= connector.Write8(startAddress + 6, 0);
+            success &= connector.Write8(startAddress + 7, 0);
+
+            success &= connector.Write8(startAddress + 8, 0);
+            success &= connector.Write8(startAddress + 9, 0);
+
+            return success;
         }
     }
 
     private class ExpertMagician : Option
     {
-        public ExpertMagician() : base("Expert Magician", "Give Sora Max Magic and lower the cost of Magic.", Category.Sora, SubCategory.Stats, durationSeconds: 30) { }
+        public ExpertMagician() : base("Expert Magician", "Give Sora Max Magic and lower the cost of Magic.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.StartTimed, durationSeconds: 30) { }
 
         private byte fire;
         private byte blizzard;
@@ -1057,64 +1136,73 @@ public class KH2FMCrowdControl
         private byte reflectCost;
         private byte magnetCost;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
+
             // Save Magic
-            connector.Read8((ulong)ConstantAddresses.Fire, out fire);
-            connector.Read8((ulong)ConstantAddresses.Blizzard, out blizzard);
-            connector.Read8((ulong)ConstantAddresses.Thunder, out thunder);
-            connector.Read8((ulong)ConstantAddresses.Cure, out cure);
-            connector.Read8((ulong)ConstantAddresses.Reflect, out reflect);
-            connector.Read8((ulong)ConstantAddresses.Magnet, out magnet);
+            success &= connector.Read8((ulong)ConstantAddresses.Fire, out fire);
+            success &= connector.Read8((ulong)ConstantAddresses.Blizzard, out blizzard);
+            success &= connector.Read8((ulong)ConstantAddresses.Thunder, out thunder);
+            success &= connector.Read8((ulong)ConstantAddresses.Cure, out cure);
+            success &= connector.Read8((ulong)ConstantAddresses.Reflect, out reflect);
+            success &= connector.Read8((ulong)ConstantAddresses.Magnet, out magnet);
 
             // Write Max Magic
-            connector.Write8((ulong)ConstantAddresses.Fire, (byte)ConstantValues.Firaga);
-            connector.Write8((ulong)ConstantAddresses.Blizzard, (byte)ConstantValues.Blizzaga);
-            connector.Write8((ulong)ConstantAddresses.Thunder, (byte)ConstantValues.Thundaga);
-            connector.Write8((ulong)ConstantAddresses.Cure, (byte)ConstantValues.Curaga);
-            connector.Write8((ulong)ConstantAddresses.Reflect, (byte)ConstantValues.Reflega);
-            connector.Write8((ulong)ConstantAddresses.Magnet, (byte)ConstantValues.Magnega);
+            success &= connector.Write8((ulong)ConstantAddresses.Fire, (byte)ConstantValues.Firaga);
+            success &= connector.Write8((ulong)ConstantAddresses.Blizzard, (byte)ConstantValues.Blizzaga);
+            success &= connector.Write8((ulong)ConstantAddresses.Thunder, (byte)ConstantValues.Thundaga);
+            success &= connector.Write8((ulong)ConstantAddresses.Cure, (byte)ConstantValues.Curaga);
+            success &= connector.Write8((ulong)ConstantAddresses.Reflect, (byte)ConstantValues.Reflega);
+            success &= connector.Write8((ulong)ConstantAddresses.Magnet, (byte)ConstantValues.Magnega);
 
             // Save Magic Costs
-            connector.Read8(ConstantAddresses.FiragaCost, out fireCost);
-            connector.Read8(ConstantAddresses.BlizzagaCost, out blizzardCost);
-            connector.Read8(ConstantAddresses.ThundagaCost, out thunderCost);
-            connector.Read8(ConstantAddresses.CuragaCost, out cureCost);
-            connector.Read8(ConstantAddresses.ReflegaCost, out reflectCost);
-            connector.Read8(ConstantAddresses.MagnegaCost, out magnetCost);
+            success &= connector.Read8(ConstantAddresses.FiragaCost, out fireCost);
+            success &= connector.Read8(ConstantAddresses.BlizzagaCost, out blizzardCost);
+            success &= connector.Read8(ConstantAddresses.ThundagaCost, out thunderCost);
+            success &= connector.Read8(ConstantAddresses.CuragaCost, out cureCost);
+            success &= connector.Read8(ConstantAddresses.ReflegaCost, out reflectCost);
+            success &= connector.Read8(ConstantAddresses.MagnegaCost, out magnetCost);
 
             // Write Magic Costs
-            connector.Write8(ConstantAddresses.FiragaCost, 0x1);
-            connector.Write8(ConstantAddresses.BlizzagaCost, 0x2);
-            connector.Write8(ConstantAddresses.ThundagaCost, 0x3);
-            connector.Write8(ConstantAddresses.CuragaCost, 0x10);
-            connector.Write8(ConstantAddresses.ReflegaCost, 0x6);
-            connector.Write8(ConstantAddresses.MagnegaCost, 0x5);
+            success &= connector.Write8(ConstantAddresses.FiragaCost, 0x1);
+            success &= connector.Write8(ConstantAddresses.BlizzagaCost, 0x2);
+            success &= connector.Write8(ConstantAddresses.ThundagaCost, 0x3);
+            success &= connector.Write8(ConstantAddresses.CuragaCost, 0x10);
+            success &= connector.Write8(ConstantAddresses.ReflegaCost, 0x6);
+            success &= connector.Write8(ConstantAddresses.MagnegaCost, 0x5);
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Write back saved Magic
-            connector.Write8((ulong)ConstantAddresses.Fire, fire);
-            connector.Write8((ulong)ConstantAddresses.Blizzard, blizzard);
-            connector.Write8((ulong)ConstantAddresses.Thunder, thunder);
-            connector.Write8((ulong)ConstantAddresses.Cure, cure);
-            connector.Write8((ulong)ConstantAddresses.Reflect, reflect);
-            connector.Write8((ulong)ConstantAddresses.Magnet, magnet);
+            success &= connector.Write8((ulong)ConstantAddresses.Fire, fire);
+            success &= connector.Write8((ulong)ConstantAddresses.Blizzard, blizzard);
+            success &= connector.Write8((ulong)ConstantAddresses.Thunder, thunder);
+            success &= connector.Write8((ulong)ConstantAddresses.Cure, cure);
+            success &= connector.Write8((ulong)ConstantAddresses.Reflect, reflect);
+            success &= connector.Write8((ulong)ConstantAddresses.Magnet, magnet);
 
             // Write back saved Magic Costs
-            connector.Write8(ConstantAddresses.FiragaCost, fireCost);
-            connector.Write8(ConstantAddresses.BlizzagaCost, blizzardCost);
-            connector.Write8(ConstantAddresses.ThundagaCost, thunderCost);
-            connector.Write8(ConstantAddresses.CuragaCost, cureCost);
-            connector.Write8(ConstantAddresses.ReflegaCost, reflectCost);
-            connector.Write8(ConstantAddresses.MagnegaCost, magnetCost);
+            success &= connector.Write8(ConstantAddresses.FiragaCost, fireCost);
+            success &= connector.Write8(ConstantAddresses.BlizzagaCost, blizzardCost);
+            success &= connector.Write8(ConstantAddresses.ThundagaCost, thunderCost);
+            success &= connector.Write8(ConstantAddresses.CuragaCost, cureCost);
+            success &= connector.Write8(ConstantAddresses.ReflegaCost, reflectCost);
+            success &= connector.Write8(ConstantAddresses.MagnegaCost, magnetCost);
+
+            return success;
         }
     }
 
     private class AmnesiacMagician : Option
     {
-        public AmnesiacMagician() : base("Amnesiac Magician", "Take away all of Sora's Magic.", Category.Sora, SubCategory.Stats, durationSeconds: 60) { }
+        public AmnesiacMagician() : base("Amnesiac Magician", "Take away all of Sora's Magic.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         private byte fire;
         private byte blizzard;
@@ -1123,37 +1211,44 @@ public class KH2FMCrowdControl
         private byte reflect;
         private byte magnet;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read8((ulong)ConstantAddresses.Fire, out fire);
-            connector.Read8((ulong)ConstantAddresses.Blizzard, out blizzard);
-            connector.Read8((ulong)ConstantAddresses.Thunder, out thunder);
-            connector.Read8((ulong)ConstantAddresses.Cure, out cure);
-            connector.Read8((ulong)ConstantAddresses.Reflect, out reflect);
-            connector.Read8((ulong)ConstantAddresses.Magnet, out magnet);
+            bool success = true;
+            success &= connector.Read8((ulong)ConstantAddresses.Fire, out fire);
+            success &= connector.Read8((ulong)ConstantAddresses.Blizzard, out blizzard);
+            success &= connector.Read8((ulong)ConstantAddresses.Thunder, out thunder);
+            success &= connector.Read8((ulong)ConstantAddresses.Cure, out cure);
+            success &= connector.Read8((ulong)ConstantAddresses.Reflect, out reflect);
+            success &= connector.Read8((ulong)ConstantAddresses.Magnet, out magnet);
 
-            connector.Write8((ulong)ConstantAddresses.Fire, (byte)ConstantValues.None);
-            connector.Write8((ulong)ConstantAddresses.Blizzard, (byte)ConstantValues.None);
-            connector.Write8((ulong)ConstantAddresses.Thunder, (byte)ConstantValues.None);
-            connector.Write8((ulong)ConstantAddresses.Cure, (byte)ConstantValues.None);
-            connector.Write8((ulong)ConstantAddresses.Reflect, (byte)ConstantValues.None);
-            connector.Write8((ulong)ConstantAddresses.Magnet, (byte)ConstantValues.None);
+            success &= connector.Write8((ulong)ConstantAddresses.Fire, (byte)ConstantValues.None);
+            success &= connector.Write8((ulong)ConstantAddresses.Blizzard, (byte)ConstantValues.None);
+            success &= connector.Write8((ulong)ConstantAddresses.Thunder, (byte)ConstantValues.None);
+            success &= connector.Write8((ulong)ConstantAddresses.Cure, (byte)ConstantValues.None);
+            success &= connector.Write8((ulong)ConstantAddresses.Reflect, (byte)ConstantValues.None);
+            success &= connector.Write8((ulong)ConstantAddresses.Magnet, (byte)ConstantValues.None);
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write8((ulong)ConstantAddresses.Fire, fire);
-            connector.Write8((ulong)ConstantAddresses.Blizzard, blizzard);
-            connector.Write8((ulong)ConstantAddresses.Thunder, thunder);
-            connector.Write8((ulong)ConstantAddresses.Cure, cure);
-            connector.Write8((ulong)ConstantAddresses.Reflect, reflect);
-            connector.Write8((ulong)ConstantAddresses.Magnet, magnet);
+            bool success = true;
+            success &= connector.Write8((ulong)ConstantAddresses.Fire, fire);
+            success &= connector.Write8((ulong)ConstantAddresses.Blizzard, blizzard);
+            success &= connector.Write8((ulong)ConstantAddresses.Thunder, thunder);
+            success &= connector.Write8((ulong)ConstantAddresses.Cure, cure);
+            success &= connector.Write8((ulong)ConstantAddresses.Reflect, reflect);
+            success &= connector.Write8((ulong)ConstantAddresses.Magnet, magnet);
+            return success;
         }
     }
 
     private class Itemaholic : Option
     {
-        public Itemaholic() : base("Itemaholic", "Fill Sora's inventory with all items, accessories, armor and weapons.", Category.Sora, SubCategory.Stats) { }
+        public Itemaholic() : base("Itemaholic", "Fill Sora's inventory with all items, accessories, armor and weapons.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> items = new()
@@ -1211,47 +1306,56 @@ public class KH2FMCrowdControl
                 { ConstantAddresses.SoraItemSlot7, 0 }, { ConstantAddresses.SoraItemSlot8, 0 }
             };
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Save all current items, before writing max value to them
             foreach (var (itemAddress, _) in items)
             {
-                connector.Read8(itemAddress, out byte itemCount);
+                success &= connector.Read8(itemAddress, out byte itemCount);
 
                 items[itemAddress] = itemCount;
 
-                connector.Write8(itemAddress, byte.MaxValue);
+                success &= connector.Write8(itemAddress, byte.MaxValue);
             }
 
             // Save all current slots
             foreach (var (slotAddress, _) in slots)
             {
-                connector.Read16LE(slotAddress, out ushort slotValue);
+                success &= connector.Read16LE(slotAddress, out ushort slotValue);
 
                 slots[slotAddress] = slotValue;
             }
+
+            return success;
         }
 
         // DO WE WANT TO REMOVE THESE AFTER OR JUST HAVE THIS AS A ONE TIME REDEEM?
-        public override void UndoEffect(IPS2Connector connector)
+        // We'll put things back to how they were after a timer
+        public override bool StopEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Write back all saved items
             foreach (var (itemAddress, itemCount) in items)
             {
-                connector.Write8(itemAddress, itemCount);
+                success &= connector.Write8(itemAddress, itemCount);
             }
 
             // Write back all saved slots
             foreach (var (slotAddress, slotValue) in slots)
             {
-                connector.Write16LE(slotAddress, slotValue);
+                success &= connector.Write16LE(slotAddress, slotValue);
             }
+
+            return success;
         }
     }
 
     private class SpringCleaning : Option
     {
-        public SpringCleaning() : base("Spring Cleaning", "Remove all items, accessories, armor and weapons from Sora's inventory.", Category.Sora, SubCategory.Stats) { }
+        public SpringCleaning() : base("Spring Cleaning", "Remove all items, accessories, armor and weapons from Sora's inventory.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.TryEffect, durationSeconds: 60) { }
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> items = new()
@@ -1309,53 +1413,61 @@ public class KH2FMCrowdControl
                 { ConstantAddresses.SoraItemSlot7, 0 }, { ConstantAddresses.SoraItemSlot8, 0 }
             };
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Save all current items, before writing max value to them
             foreach (var (itemAddress, _) in items)
             {
-                connector.Read8(itemAddress, out byte itemCount);
+                success &= connector.Read8(itemAddress, out byte itemCount);
 
                 items[itemAddress] = itemCount;
 
-                connector.Write8(itemAddress, byte.MinValue);
+                success &= connector.Write8(itemAddress, byte.MinValue);
             }
 
             // Save all current slots
             foreach (var (slotAddress, _) in slots)
             {
-                connector.Read16LE(slotAddress, out ushort slotValue);
+                success &= connector.Read16LE(slotAddress, out ushort slotValue);
 
                 slots[slotAddress] = slotValue;
 
                 if (slotAddress != ConstantAddresses.SoraWeaponSlot && slotAddress != ConstantAddresses.SoraValorWeaponSlot &&
                     slotAddress != ConstantAddresses.SoraMasterWeaponSlot && slotAddress != ConstantAddresses.SoraFinalWeaponSlot)
                 {
-                    connector.Write16LE(slotAddress, ushort.MinValue);
+                    success &= connector.Write16LE(slotAddress, ushort.MinValue);
                 }
             }
+
+            return success;
         }
 
         // DO WE WANT TO REMOVE THESE AFTER OR JUST HAVE THIS AS A ONE TIME REDEEM?
-        public override void UndoEffect(IPS2Connector connector)
+        // We'll put things back to how they were after a timer
+        public override bool StopEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Write back all saved items
             foreach (var (itemAddress, itemCount) in items)
             {
-                connector.Write8(itemAddress, itemCount);
+                success &= connector.Write8(itemAddress, itemCount);
             }
 
             // Write back all saved slots
             foreach (var (slotAddress, slotValue) in slots)
             {
-                connector.Write16LE(slotAddress, slotValue);
+                success &= connector.Write16LE(slotAddress, slotValue);
             }
+            return success;
         }
     }
 
     private class SummonChauffeur : Option
     {
-        public SummonChauffeur() : base("Summon Chauffeur", "Give all Drives and Summons to Sora.", Category.Sora, SubCategory.Summon) { }
+        public SummonChauffeur() : base("Summon Chauffeur", "Give all Drives and Summons to Sora.", 
+            Category.Sora, SubCategory.Summon,
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> drivesSummons = new()
@@ -1367,22 +1479,23 @@ public class KH2FMCrowdControl
                 { ConstantAddresses.Drive, 0 }, { ConstantAddresses.MaxDrive, 0 }
             };
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Save all current items, before writing max value to them
             foreach (var (driveSummon, _) in drivesSummons)
             {
-                connector.Read8(driveSummon, out byte value);
+                success &= connector.Read8(driveSummon, out byte value);
 
                 drivesSummons[driveSummon] = value;
 
                 if (driveSummon == ConstantAddresses.DriveForms)
                 {
-                    connector.Write8(driveSummon, 127);
+                    success &= connector.Write8(driveSummon, 127);
                 }
                 else if (driveSummon == ConstantAddresses.DriveLimitForm)
                 {
-                    connector.Write8(driveSummon, 8);
+                    success &= connector.Write8(driveSummon, 8);
                 }
                 //else if (driveSummon == ConstantAddresses.UkeleleBaseballCharm)
                 //{
@@ -1390,29 +1503,35 @@ public class KH2FMCrowdControl
                 //}
                 else if (driveSummon == ConstantAddresses.LampFeatherCharm)
                 {
-                    connector.Write8(driveSummon, 48);
+                    success &= connector.Write8(driveSummon, 48);
                 }
                 else
                 {
-                    connector.Write8(driveSummon, byte.MaxValue);
+                    success &= connector.Write8(driveSummon, byte.MaxValue);
                 }
             }
+            return success;
         }
 
         // DO WE WANT TO REMOVE THESE AFTER OR JUST HAVE THIS AS A ONE TIME REDEEM?
-        public override void UndoEffect(IPS2Connector connector)
+        // We'll put things back to how they were after a timer
+        public override bool StopEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Write back all saved items
             foreach (var (driveSummon, value) in drivesSummons)
             {
-                connector.Write8(driveSummon, value);
+                success &= connector.Write8(driveSummon, value);
             }
+            return success;
         }
     }
 
     private class SummonTrainer : Option
     {
-        public SummonTrainer() : base("Summon Trainer", "Remove all Drives and Summons from Sora.", Category.Sora, SubCategory.Summon) { }
+        public SummonTrainer() : base("Summon Trainer", "Remove all Drives and Summons from Sora.", 
+            Category.Sora, SubCategory.Summon,
+            EffectFunction.StartTimed, durationSeconds: 60) { }
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> drivesSummons = new()
@@ -1424,35 +1543,43 @@ public class KH2FMCrowdControl
                 { ConstantAddresses.Drive, 0 }, { ConstantAddresses.MaxDrive, 0 }
             };
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Save all current items, before writing max value to them
             foreach (var (driveSummon, _) in drivesSummons)
             {
-                connector.Read8(driveSummon, out byte value);
+                success &= connector.Read8(driveSummon, out byte value);
 
                 drivesSummons[driveSummon] = value;
 
-                connector.Write8(driveSummon, byte.MinValue);
+                success &= connector.Write8(driveSummon, byte.MinValue);
             }
+
+            return success;
         }
 
         // DO WE WANT TO REMOVE THESE AFTER OR JUST HAVE THIS AS A ONE TIME REDEEM?
-        public override void UndoEffect(IPS2Connector connector)
+        // Adding in timer
+        public override bool StopEffect(IPS2Connector connector)
         {
+            bool success = true;
             // Write back all saved items
             foreach (var (driveSummon, value) in drivesSummons)
             {
-                connector.Write8(driveSummon, value);
+                success &= connector.Write8(driveSummon, value);
             }
+            return success;
         }
     }
 
     private class HeroSora : Option
     {
-        public HeroSora() : base("Hero Sora", "Set Sora to HERO mode, including Stats, Items, Magic, Drives and Summons.", Category.Sora, SubCategory.Stats, durationSeconds: 30)
+        public HeroSora() : base("Hero Sora", "Set Sora to HERO mode, including Stats, Items, Magic, Drives and Summons.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.StartTimed, durationSeconds: 30)
         {
-            experMagician = new ExpertMagician();
+            expertMagician = new ExpertMagician();
             itemaholic = new Itemaholic();
             summonChauffeur = new SummonChauffeur();
         }
@@ -1467,58 +1594,67 @@ public class KH2FMCrowdControl
         private byte defense;
         private byte ap;
 
-        private readonly ExpertMagician experMagician;
+        private readonly ExpertMagician expertMagician;
         private readonly Itemaholic itemaholic;
         private readonly SummonChauffeur summonChauffeur;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read8(ConstantAddresses.Level, out level);
-            connector.Read32LE(ConstantAddresses.HP, out hp);
-            connector.Read32LE(ConstantAddresses.MaxHP, out maxHp);
-            connector.Read32LE(ConstantAddresses.MP, out mp);
-            connector.Read32LE(ConstantAddresses.MaxMP, out maxMp);
-            connector.Read8(ConstantAddresses.Strength, out strength);
-            connector.Read8(ConstantAddresses.Magic, out magic);
-            connector.Read8(ConstantAddresses.Defense, out defense);
-            connector.Read8(ConstantAddresses.AP, out ap);
+            bool success = true;
+            success &= connector.Read8(ConstantAddresses.Level, out level);
+            success &= connector.Read32LE(ConstantAddresses.HP, out hp);
+            success &= connector.Read32LE(ConstantAddresses.MaxHP, out maxHp);
+            success &= connector.Read32LE(ConstantAddresses.MP, out mp);
+            success &= connector.Read32LE(ConstantAddresses.MaxMP, out maxMp);
+            success &= connector.Read8(ConstantAddresses.Strength, out strength);
+            success &= connector.Read8(ConstantAddresses.Magic, out magic);
+            success &= connector.Read8(ConstantAddresses.Defense, out defense);
+            success &= connector.Read8(ConstantAddresses.AP, out ap);
 
-            connector.Write8(ConstantAddresses.Level, 99);
-            connector.Write32LE(ConstantAddresses.HP, 160);
-            connector.Write32LE(ConstantAddresses.MaxHP, 160);
-            connector.Write32LE(ConstantAddresses.MP, byte.MaxValue);
-            connector.Write32LE(ConstantAddresses.MaxMP, byte.MaxValue);
-            connector.Write8(ConstantAddresses.Strength, byte.MaxValue);
-            connector.Write8(ConstantAddresses.Magic, byte.MaxValue);
-            connector.Write8(ConstantAddresses.Defense, byte.MaxValue);
-            connector.Write8(ConstantAddresses.AP, byte.MaxValue);
+            success &= connector.Write8(ConstantAddresses.Level, 99);
+            success &= connector.Write32LE(ConstantAddresses.HP, 160);
+            success &= connector.Write32LE(ConstantAddresses.MaxHP, 160);
+            success &= connector.Write32LE(ConstantAddresses.MP, byte.MaxValue);
+            success &= connector.Write32LE(ConstantAddresses.MaxMP, byte.MaxValue);
+            success &= connector.Write8(ConstantAddresses.Strength, byte.MaxValue);
+            success &= connector.Write8(ConstantAddresses.Magic, byte.MaxValue);
+            success &= connector.Write8(ConstantAddresses.Defense, byte.MaxValue);
+            success &= connector.Write8(ConstantAddresses.AP, byte.MaxValue);
 
-            experMagician.DoEffect(connector);
-            itemaholic.DoEffect(connector);
-            summonChauffeur.DoEffect(connector);
+            success &= expertMagician.StartEffect(connector);
+            success &= itemaholic.StartEffect(connector);
+            success &= summonChauffeur.StartEffect(connector);
+            
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write8(ConstantAddresses.Level, level);
-            connector.Write32LE(ConstantAddresses.HP, hp);
-            connector.Write32LE(ConstantAddresses.MaxHP, maxHp);
-            connector.Write32LE(ConstantAddresses.MP, mp);
-            connector.Write32LE(ConstantAddresses.MaxMP, maxMp);
-            connector.Write8(ConstantAddresses.Strength, strength);
-            connector.Write8(ConstantAddresses.Magic, magic);
-            connector.Write8(ConstantAddresses.Defense, defense);
-            connector.Write8(ConstantAddresses.AP, ap);
+            bool success = true;
 
-            experMagician.UndoEffect(connector);
-            itemaholic.UndoEffect(connector);
-            summonChauffeur.UndoEffect(connector);
+            success &= connector.Write8(ConstantAddresses.Level, level);
+            success &= connector.Write32LE(ConstantAddresses.HP, hp);
+            success &= connector.Write32LE(ConstantAddresses.MaxHP, maxHp);
+            success &= connector.Write32LE(ConstantAddresses.MP, mp);
+            success &= connector.Write32LE(ConstantAddresses.MaxMP, maxMp);
+            success &= connector.Write8(ConstantAddresses.Strength, strength);
+            success &= connector.Write8(ConstantAddresses.Magic, magic);
+            success &= connector.Write8(ConstantAddresses.Defense, defense);
+            success &= connector.Write8(ConstantAddresses.AP, ap);
+
+            success &= expertMagician.StopEffect(connector);
+            success &= itemaholic.StopEffect(connector);
+            success &= summonChauffeur.StopEffect(connector);
+
+            return success;
         }
     }
 
     private class ZeroSora : Option
     {
-        public ZeroSora() : base("Zero Sora", "Set Sora to ZERO mode, including Stats, Items, Magic, Drives and Summons.", Category.Sora, SubCategory.Stats, durationSeconds: 30)
+        public ZeroSora() : base("Zero Sora", "Set Sora to ZERO mode, including Stats, Items, Magic, Drives and Summons.", 
+            Category.Sora, SubCategory.Stats, 
+            EffectFunction.StartTimed, durationSeconds: 30)
         {
             amnesiacMagician = new AmnesiacMagician();
             springCleaning = new SpringCleaning();
@@ -1539,48 +1675,55 @@ public class KH2FMCrowdControl
         private readonly SpringCleaning springCleaning;
         private readonly SummonTrainer summonTrainer;
 
-        public override void DoEffect(IPS2Connector connector)
+        public override bool StartEffect(IPS2Connector connector)
         {
-            connector.Read8(ConstantAddresses.Level, out level);
-            connector.Read32LE(ConstantAddresses.HP, out hp);
-            connector.Read32LE(ConstantAddresses.MaxHP, out maxHp);
-            connector.Read32LE(ConstantAddresses.MP, out mp);
-            connector.Read32LE(ConstantAddresses.MaxMP, out maxMp);
-            connector.Read8(ConstantAddresses.Strength, out strength);
-            connector.Read8(ConstantAddresses.Magic, out magic);
-            connector.Read8(ConstantAddresses.Defense, out defense);
-            connector.Read8(ConstantAddresses.AP, out ap);
+            bool success = true;
 
-            connector.Write8(ConstantAddresses.Level, byte.MinValue + 1);
-            connector.Write32LE(ConstantAddresses.HP, uint.MinValue + 1);
-            connector.Write32LE(ConstantAddresses.MaxHP, uint.MinValue + 1);
-            connector.Write32LE(ConstantAddresses.MP, uint.MinValue);
-            connector.Write32LE(ConstantAddresses.MaxMP, uint.MinValue);
-            connector.Write8(ConstantAddresses.Strength, byte.MinValue);
-            connector.Write8(ConstantAddresses.Magic, byte.MinValue);
-            connector.Write8(ConstantAddresses.Defense, byte.MinValue);
-            connector.Write8(ConstantAddresses.AP, byte.MinValue);
+            success &= connector.Read8(ConstantAddresses.Level, out level);
+            success &= connector.Read32LE(ConstantAddresses.HP, out hp);
+            success &= connector.Read32LE(ConstantAddresses.MaxHP, out maxHp);
+            success &= connector.Read32LE(ConstantAddresses.MP, out mp);
+            success &= connector.Read32LE(ConstantAddresses.MaxMP, out maxMp);
+            success &= connector.Read8(ConstantAddresses.Strength, out strength);
+            success &= connector.Read8(ConstantAddresses.Magic, out magic);
+            success &= connector.Read8(ConstantAddresses.Defense, out defense);
+            success &= connector.Read8(ConstantAddresses.AP, out ap);
 
-            amnesiacMagician.DoEffect(connector);
-            springCleaning.DoEffect(connector);
-            summonTrainer.DoEffect(connector);
+            success &= connector.Write8(ConstantAddresses.Level, byte.MinValue + 1);
+            success &= connector.Write32LE(ConstantAddresses.HP, uint.MinValue + 1);
+            success &= connector.Write32LE(ConstantAddresses.MaxHP, uint.MinValue + 1);
+            success &= connector.Write32LE(ConstantAddresses.MP, uint.MinValue);
+            success &= connector.Write32LE(ConstantAddresses.MaxMP, uint.MinValue);
+            success &= connector.Write8(ConstantAddresses.Strength, byte.MinValue);
+            success &= connector.Write8(ConstantAddresses.Magic, byte.MinValue);
+            success &= connector.Write8(ConstantAddresses.Defense, byte.MinValue);
+            success &= connector.Write8(ConstantAddresses.AP, byte.MinValue);
+
+            success &= amnesiacMagician.StartEffect(connector);
+            success &= springCleaning.StartEffect(connector);
+            success &= summonTrainer.StartEffect(connector);
+
+            return success;
         }
 
-        public override void UndoEffect(IPS2Connector connector)
+        public override bool StopEffect(IPS2Connector connector)
         {
-            connector.Write8(ConstantAddresses.Level, level);
-            connector.Write32LE(ConstantAddresses.HP, hp);
-            connector.Write32LE(ConstantAddresses.MaxHP, maxHp);
-            connector.Write32LE(ConstantAddresses.MP, mp);
-            connector.Write32LE(ConstantAddresses.MaxMP, maxMp);
-            connector.Write8(ConstantAddresses.Strength, strength);
-            connector.Write8(ConstantAddresses.Magic, magic);
-            connector.Write8(ConstantAddresses.Defense, defense);
-            connector.Write8(ConstantAddresses.AP, ap);
+            bool success = true;
+            success &= connector.Write8(ConstantAddresses.Level, level);
+            success &= connector.Write32LE(ConstantAddresses.HP, hp);
+            success &= connector.Write32LE(ConstantAddresses.MaxHP, maxHp);
+            success &= connector.Write32LE(ConstantAddresses.MP, mp);
+            success &= connector.Write32LE(ConstantAddresses.MaxMP, maxMp);
+            success &= connector.Write8(ConstantAddresses.Strength, strength);
+            success &= connector.Write8(ConstantAddresses.Magic, magic);
+            success &= connector.Write8(ConstantAddresses.Defense, defense);
+            success &= connector.Write8(ConstantAddresses.AP, ap);
 
-            amnesiacMagician.UndoEffect(connector);
-            springCleaning.UndoEffect(connector);
-            summonTrainer.UndoEffect(connector);
+            success &= amnesiacMagician.StopEffect(connector);
+            success &= springCleaning.StopEffect(connector);
+            success &= summonTrainer.StopEffect(connector);
+
+            return success;
         }
     }
     #endregion
