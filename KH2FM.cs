@@ -1,6 +1,9 @@
-﻿using ConnectorType = CrowdControl.Common.ConnectorType;
-using Log = CrowdControl.Common.Log;
+﻿using ConnectorLib;
+using ConnectorType = CrowdControl.Common.ConnectorType;
+using CrowdControl.Common;
+using JetBrains.Annotations;
 using Timer = System.Timers.Timer;
+using Log = CrowdControl.Common.Log;
 // ReSharper disable CommentTypo
 
 namespace CrowdControl.Games.Packs.KH2FM;
@@ -48,18 +51,23 @@ public class KH2FM : PS2EffectPack
         return kh2FMCrowdControl.Options[effectId];
     }
 
-    protected override bool IsReady(IPS2Connector connector, EffectRequest request)
+    private bool IsGameInPlay()
     {
-        // We want to return that we are Ready when we are not Paused (2) or at Main Menu (0), but Running (1)
-        connector.Read32LE(0x2033E6FC, out ulong gameState);
+        bool readSuccessful = Connector.Read32LE(0x2035F314, out uint gameState);
+        // We want to return that the game is in play when we are not Paused (2) or at Main Menu (0), but Running (1)
+        Log.Message($"Is game in play? {readSuccessful} && {gameState}");
+        return readSuccessful && gameState == 1;
+    }
 
-        return gameState == 1;
+    protected override bool IsReady(EffectRequest request)
+    {
+        return IsGameInPlay();
     }
 
     protected override void StartEffect(EffectRequest request)
     {
         base.StartEffect(request);
-        if (!IsReady(Connector, request))
+        if (!IsReady(request))
         {
             DelayEffect(request);
             return;
@@ -72,8 +80,8 @@ public class KH2FM : PS2EffectPack
             case EffectFunction.StartTimed:
                 var timed = StartTimed(
                     request,
-                    () => true,
-                    () => true, // could do pause checking here down the road
+                    () => IsGameInPlay(),
+                    () => IsGameInPlay(),
                     TimeSpan.FromMilliseconds(500),
                     () => option.StartEffect(Connector),
                     kh2FMCrowdControl.OptionConflicts[option.Id]
@@ -82,10 +90,10 @@ public class KH2FM : PS2EffectPack
                 break;
             case EffectFunction.RepeatAction:
                 var action = RepeatAction(request,
-                        () => true,
+                        () => IsGameInPlay(),
                         () => option.StartEffect(Connector),
                         TimeSpan.FromSeconds(1),
-                        () => true, // could do pause checking here down the road
+                        () => IsGameInPlay(),
                         TimeSpan.FromMilliseconds(500),
                         () => option.DoEffect(Connector),
                         TimeSpan.FromMilliseconds(500),
@@ -97,7 +105,7 @@ public class KH2FM : PS2EffectPack
             default:
                 TryEffect(
                     request,
-                    () => true,
+                    () => IsGameInPlay(),
                     () => option.StartEffect(Connector),
                     () => option.StopEffect(Connector),
                     true,
@@ -183,20 +191,6 @@ public abstract class Option
         Description = description;
         DurationSeconds = durationSeconds;
     }
-
-    /// <summary>
-    /// This will check whether or not it is already running
-    /// </summary>
-    /// <returns></returns>
-    /// This doesn't seem to be in use here...
-    //public bool IsReady()
-    //{
-    //    // We want to return that we are Ready when we are not Paused (2) or at Main Menu (0), but Running (1)
-    //    Connector.Read32LE(0x2033E6FC, out ulong gameState);
-
-    //    return gameState == 1;
-    //    //return !isActive;
-    //}
 
     public EffectGrouping? GetEffectCategory()
     {
