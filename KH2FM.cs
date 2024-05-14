@@ -1,4 +1,5 @@
-﻿using ConnectorLib;
+﻿using System.Diagnostics.CodeAnalysis;
+using ConnectorLib;
 using CrowdControl.Common;
 using JetBrains.Annotations;
 using ConnectorType = CrowdControl.Common.ConnectorType;
@@ -42,13 +43,13 @@ public class KH2FM : PS2EffectPack
         timer.Start();
     }
 
-    private Option GetOptionForRequest(EffectRequest request)
+    private bool GetOptionForRequest(EffectRequest request, [MaybeNullWhen(false)] out Option option)
     {
         string effectId = FinalCode(request);
         Log.Debug($"Requested Effect Id (FinalCode): {effectId}");
         var availableEffectIds = kh2FMCrowdControl.Options.Select((pair) => pair.Key).ToList();
         Log.Debug("Available Effect Ids: " + string.Join(", ", availableEffectIds));
-        return kh2FMCrowdControl.Options[effectId];
+        return kh2FMCrowdControl.Options.TryGetValue(effectId, out option);
     }
 
     protected override bool IsReady(EffectRequest request)
@@ -65,7 +66,11 @@ public class KH2FM : PS2EffectPack
             return;
         }
 
-        Option option = GetOptionForRequest(request);
+        if (!GetOptionForRequest(request, out Option? option))
+        {
+            Respond(request, EffectStatus.FailPermanent);
+            return;
+        }
 
         switch(option.effectFunction)
         {
@@ -112,9 +117,9 @@ public class KH2FM : PS2EffectPack
     protected override bool StopEffect(EffectRequest request)
     {
         Log.Message($"[StopEffect] request.EffectId = {request.EffectID}");
-        Option option = GetOptionForRequest(request);
-        base.StopEffect(request);
-        return option.StopEffect(Connector);
+
+        if (GetOptionForRequest(request, out Option? option)) return option.StopEffect(Connector);
+        return base.StopEffect(request);
     }
 
     public override bool StopAllEffects()
