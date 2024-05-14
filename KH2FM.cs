@@ -54,8 +54,6 @@ public class KH2FM : PS2EffectPack
     private bool IsGameInPlay()
     {
         bool readSuccessful = Connector.Read32LE(0x2035F314, out uint gameState);
-        // We want to return that the game is in play when we are not Paused (2) or at Main Menu (0), but Running (1)
-        Log.Message($"Is game in play? {readSuccessful} && {gameState}");
         return readSuccessful && gameState == 1;
     }
 
