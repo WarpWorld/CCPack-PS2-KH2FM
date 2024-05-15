@@ -1,10 +1,13 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using ConnectorLib;
+﻿using ConnectorLib;
 using ConnectorType = CrowdControl.Common.ConnectorType;
 using CrowdControl.Common;
 using JetBrains.Annotations;
-using Timer = System.Timers.Timer;
 using Log = CrowdControl.Common.Log;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Threading;
+using Timer = System.Timers.Timer;
 // ReSharper disable CommentTypo
 
 namespace CrowdControl.Games.Packs.KH2FM;
@@ -82,38 +85,40 @@ public class KH2FM : PS2EffectPack
         {
             case EffectFunction.StartTimed:
                 var timed = StartTimed(
-                    request,
-                    () => IsGameInPlay(),
-                    () => IsGameInPlay(),
-                    TimeSpan.FromMilliseconds(500),
-                    () => option.StartEffect(Connector),
-                    kh2FMCrowdControl.OptionConflicts[option.Id]
+                    request: request,
+                    startCondition: () => IsGameInPlay(),
+                    continueCondition: () => IsGameInPlay(),
+                    continueConditionInterval: TimeSpan.FromMilliseconds(500),
+                    action: () => option.StartEffect(Connector),
+                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id]
                 );
                 timed.WhenCompleted.Then(_ => option.StopEffect(Connector));
                 break;
             case EffectFunction.RepeatAction:
-                var action = RepeatAction(request,
-                        () => IsGameInPlay(),
-                        () => option.StartEffect(Connector),
-                        TimeSpan.FromSeconds(1),
-                        () => IsGameInPlay(),
-                        TimeSpan.FromMilliseconds(500),
-                        () => option.DoEffect(Connector),
-                        TimeSpan.FromMilliseconds(500),
-                        true,
-                        kh2FMCrowdControl.OptionConflicts[option.Id]
-                    );
+                var action = RepeatAction(
+                    request: request,
+                    startCondition: () => IsGameInPlay(),
+                    startAction: () => option.StartEffect(Connector),
+                    startRetry: TimeSpan.FromSeconds(1),
+                    refreshCondition: () => IsGameInPlay(),
+                    refreshRetry: TimeSpan.FromMilliseconds(500),
+                    refreshAction: () => option.DoEffect(Connector),
+                    refreshInterval: TimeSpan.FromMilliseconds(option.RefreshInterval),
+                    extendOnFail: true,
+                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id]
+                );
                 action.WhenCompleted.Then(_ => option.StopEffect(Connector));
                 break;
             default:
                 TryEffect(
-                    request,
-                    () => IsGameInPlay(),
-                    () => option.StartEffect(Connector),
-                    () => option.StopEffect(Connector),
-                    true,
-                    kh2FMCrowdControl.OptionConflicts[option.Id],
-                    TimeSpan.FromMilliseconds(500)
+                    request: request,
+                    condition: () => IsGameInPlay(),
+                    action: () => option.StartEffect(Connector),
+                    followUp: () => option.StopEffect(Connector),
+                    retryDelay: TimeSpan.FromMilliseconds(500),
+                    retryOnFail: true,
+                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id],
+                    holdMutex: TimeSpan.FromMilliseconds(500)
                 );
                 break;
 
@@ -183,8 +188,9 @@ public abstract class Option
     public int Cost { get; set; }
 
     public int DurationSeconds { get; set; }
+    public int RefreshInterval { get; set; } // In milliseconds
 
-    public Option(string name, string description, Category category, SubCategory subCategory, EffectFunction effectFunction, int cost = 50, int durationSeconds = 0)
+    public Option(string name, string description, Category category, SubCategory subCategory, EffectFunction effectFunction, int cost = 50, int durationSeconds = 0, int refreshInterval = 500)
     {
         Name = name;
         this.category = category;
@@ -193,6 +199,7 @@ public abstract class Option
         Cost = cost;
         Description = description;
         DurationSeconds = durationSeconds;
+        RefreshInterval = refreshInterval;
     }
 
     public EffectGrouping? GetEffectCategory()
@@ -241,6 +248,8 @@ public class KH2FMCrowdControl
         SummonTrainer summonTrainer = new SummonTrainer();
         HeroSora heroSora = new HeroSora();
         ZeroSora zeroSora = new ZeroSora();
+        ProCodes proCodes = new ProCodes();
+        EZCodes ezCodes = new EZCodes();
 
         Options = new List<Option>
             {
@@ -529,6 +538,11 @@ public class KH2FMCrowdControl
             Category.Sora, SubCategory.Drive, EffectFunction.TryEffect)
         { }
 
+        private ushort currentKeyblade;
+        private ushort currentValorKeyblade;
+        private ushort currentMasterKeyblade;
+        private ushort currentFinalKeyblade;
+
         private readonly List<uint> values =
         [
             ConstantValues.ReactionValor,
@@ -543,14 +557,32 @@ public class KH2FMCrowdControl
             bool success = true;
             // Get us out of a Drive first if we are in one
             success &= connector.WriteFloat(ConstantAddresses.DriveTime, ConstantValues.None);
+
             Thread.Sleep(200);
 
             int randomIndex = new Random().Next(values.Count);
 
+            success &= connector.Read16LE(ConstantAddresses.SoraWeaponSlot, out currentKeyblade);
+
+            // Set the current keyblade in the slot for the drive form
+            if (randomIndex == 0) // Valor
+            {
+                success &= connector.Read16LE(ConstantAddresses.SoraValorWeaponSlot, out currentValorKeyblade);
+                success &= connector.Write16LE(ConstantAddresses.SoraValorWeaponSlot, currentKeyblade);
+            }
+            else if (randomIndex == 3) // Master
+            {
+                success &= connector.Read16LE(ConstantAddresses.SoraMasterWeaponSlot, out currentMasterKeyblade);
+                success &= connector.Write16LE(ConstantAddresses.SoraMasterWeaponSlot, currentKeyblade);
+            }
+            else if (randomIndex == 4) // Final
+            {
+                success &= connector.Read16LE(ConstantAddresses.SoraValorWeaponSlot, out currentFinalKeyblade);
+                success &= connector.Write16LE(ConstantAddresses.SoraFinalWeaponSlot, currentKeyblade);
+            }
+
             success &= connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
-
             success &= connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)values[randomIndex]);
-
             success &= connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
 
             // Might be able to move this to RepeatAction?
@@ -562,6 +594,20 @@ public class KH2FMCrowdControl
                 if (value == 5) timer.Stop();
 
                 connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
+
+                // Set the current keyblade in the slot back to the original for the drive form
+                if (randomIndex == 0) // Valor
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraValorWeaponSlot, currentValorKeyblade);
+                }
+                else if (randomIndex == 3) // Master
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraMasterWeaponSlot, currentMasterKeyblade);
+                }
+                else if (randomIndex == 4) // Final
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraFinalWeaponSlot, currentFinalKeyblade);
+                }
             };
             timer.Start();
 
@@ -1807,6 +1853,86 @@ public class KH2FMCrowdControl
             return success;
         }
     }
+
+    private class ProCodes : Option
+    {
+        public ProCodes() : base("Pro-Codes", "Set Sora to consistently lose HP, MP and Drive Gauges",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.RepeatAction, durationSeconds: 60, refreshInterval: 1000)
+        {
+        }
+
+        private uint hp;
+        private uint mp;
+        private uint drive;
+
+        public override bool StartEffect(IPS2Connector connector)
+        {
+            bool success = true;
+
+            success &= connector.Read32LE(ConstantAddresses.HP, out hp);
+            success &= connector.Read32LE(ConstantAddresses.MP, out mp);
+            success &= connector.Read32LE(ConstantAddresses.Drive, out drive);
+
+            return success;
+        }
+
+        public override bool DoEffect(IPS2Connector connector)
+        {
+            bool success = true;
+
+            success &= connector.Write32LE(ConstantAddresses.HP, hp - 1);
+            success &= connector.Write32LE(ConstantAddresses.MP, mp - 1);
+
+            // Limit this to drop only 6 at most
+            if (hp % 10 == 0)
+            {
+                success &= connector.Write32LE(ConstantAddresses.Drive, drive - 1);
+            }
+
+            return success;
+        }
+    }
+
+    private class EZCodes : Option
+    {
+        public EZCodes() : base("EZ-Codes", "Set Sora to consistently gain HP, MP and Drive Gauges",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.RepeatAction, durationSeconds: 60, refreshInterval: 1000)
+        {
+        }
+
+        private uint hp;
+        private uint mp;
+        private uint drive;
+
+        public override bool StartEffect(IPS2Connector connector)
+        {
+            bool success = true;
+
+            success &= connector.Read32LE(ConstantAddresses.HP, out hp);
+            success &= connector.Read32LE(ConstantAddresses.MP, out mp);
+            success &= connector.Read32LE(ConstantAddresses.Drive, out drive);
+
+            return success;
+        }
+
+        public override bool DoEffect(IPS2Connector connector)
+        {
+            bool success = true;
+
+            success &= connector.Write32LE(ConstantAddresses.HP, hp + 1);
+            success &= connector.Write32LE(ConstantAddresses.MP, mp + 1);
+
+            // Limit this to gain only 6 at most
+            if (hp % 10 == 0)
+            {
+                success &= connector.Write32LE(ConstantAddresses.Drive, drive + 1);
+            }
+
+            return success;
+        }
+    }
     #endregion
 }
 
@@ -2159,7 +2285,7 @@ public static class ConstantAddresses
     public static uint MagicBoostStat = 0x2032E02A;
     public static uint DefenseBoostStat = 0x2032E02B;
     public static uint APBoostStat = 0x2032E028;
-    public static uint Speed = 0x21CE2FE4;
+    public static uint Speed = 0x21ACDDE4;
     #endregion Stats
 
     #region Summons
