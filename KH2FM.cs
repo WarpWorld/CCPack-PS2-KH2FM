@@ -1,9 +1,9 @@
-﻿using ConnectorLib;
-using CrowdControl.Common;
-using JetBrains.Annotations;
+﻿using System;
+using System.Collections.Generic;
+using System.Threading;
 using ConnectorType = CrowdControl.Common.ConnectorType;
-using Timer = System.Timers.Timer;
 using Log = CrowdControl.Common.Log;
+using Timer = System.Timers.Timer;
 // ReSharper disable CommentTypo
 
 namespace CrowdControl.Games.Packs.KH2FM;
@@ -42,18 +42,24 @@ public class KH2FM : PS2EffectPack
         timer.Start();
     }
 
-    private Option GetOptionForRequest(EffectRequest request)
+    private bool GetOptionForRequest(EffectRequest request, [MaybeNullWhen(false)] out Option option)
     {
         string effectId = FinalCode(request);
         Log.Debug($"Requested Effect Id (FinalCode): {effectId}");
         var availableEffectIds = kh2FMCrowdControl.Options.Select((pair) => pair.Key).ToList();
         Log.Debug("Available Effect Ids: " + string.Join(", ", availableEffectIds));
-        return kh2FMCrowdControl.Options[effectId];
+        return kh2FMCrowdControl.Options.TryGetValue(effectId, out option);
+    }
+
+    private bool IsGameInPlay()
+    {
+        bool readSuccessful = Connector.Read32LE(0x2035F314, out uint gameState);
+        return readSuccessful && gameState == 1;
     }
 
     protected override bool IsReady(EffectRequest request)
     {
-        return true;
+        return IsGameInPlay();
     }
 
     protected override void StartEffect(EffectRequest request)
@@ -65,44 +71,50 @@ public class KH2FM : PS2EffectPack
             return;
         }
 
-        Option option = GetOptionForRequest(request);
+        if (!GetOptionForRequest(request, out Option? option))
+        {
+            Respond(request, EffectStatus.FailPermanent);
+            return;
+        }
 
-        switch(option.effectFunction)
+        switch (option.effectFunction)
         {
             case EffectFunction.StartTimed:
                 var timed = StartTimed(
-                    request,
-                    () => true,
-                    () => true, // could do pause checking here down the road
-                    TimeSpan.FromMilliseconds(500),
-                    () => option.StartEffect(Connector),
-                    kh2FMCrowdControl.OptionConflicts[option.Id]
+                    request: request,
+                    startCondition: () => IsGameInPlay(),
+                    continueCondition: () => IsGameInPlay(),
+                    continueConditionInterval: TimeSpan.FromMilliseconds(500),
+                    action: () => option.StartEffect(Connector),
+                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id]
                 );
                 timed.WhenCompleted.Then(_ => option.StopEffect(Connector));
                 break;
             case EffectFunction.RepeatAction:
-                var action = RepeatAction(request,
-                        () => true,
-                        () => option.StartEffect(Connector),
-                        TimeSpan.FromSeconds(1),
-                        () => true, // could do pause checking here down the road
-                        TimeSpan.FromMilliseconds(500),
-                        () => option.DoEffect(Connector),
-                        TimeSpan.FromMilliseconds(500),
-                        true,
-                        kh2FMCrowdControl.OptionConflicts[option.Id]
-                    );
+                var action = RepeatAction(
+                    requeset: request,
+                    startCondition: () => IsGameInPlay(),
+                    startAction: () => option.StartEffect(Connector),
+                    startRetry: TimeSpan.FromSeconds(1),
+                    refreshCondition: () => IsGameInPlay(),
+                    refreshRetry: TimeSpan.FromMilliseconds(500),
+                    refreshAction: () => option.DoEffect(Connector),
+                    refreshInterval: TimeSpan.FromMilliseconds(option.RefreshInterval),
+                    extendOnFail: true,
+                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id]
+                );
                 action.WhenCompleted.Then(_ => option.StopEffect(Connector));
                 break;
             default:
                 TryEffect(
-                    request,
-                    () => true,
-                    () => option.StartEffect(Connector),
-                    () => option.StopEffect(Connector),
-                    true,
-                    kh2FMCrowdControl.OptionConflicts[option.Id],
-                    TimeSpan.FromMilliseconds(500)
+                    request: request,
+                    condition: () => IsGameInPlay(),
+                    action: () => option.StartEffect(Connector),
+                    followUp: () => option.StopEffect(Connector),
+                    retryDelay: TimeSpan.FromMilliseconds(500),
+                    retryOnFail: true,
+                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id],
+                    holdMutex: TimeSpan.FromMilliseconds(500)
                 );
                 break;
 
@@ -112,9 +124,9 @@ public class KH2FM : PS2EffectPack
     protected override bool StopEffect(EffectRequest request)
     {
         Log.Message($"[StopEffect] request.EffectId = {request.EffectID}");
-        Option option = GetOptionForRequest(request);
-        base.StopEffect(request);
-        return option.StopEffect(Connector);
+
+        if (GetOptionForRequest(request, out Option? option)) return option.StopEffect(Connector);
+        return base.StopEffect(request);
     }
 
     public override bool StopAllEffects()
@@ -122,11 +134,12 @@ public class KH2FM : PS2EffectPack
         bool success = base.StopAllEffects();
         try
         {
-            foreach(Option o in kh2FMCrowdControl.Options.Values)
+            foreach (Option o in kh2FMCrowdControl.Options.Values)
             {
                 success &= o.StopEffect(Connector);
             }
-        } catch
+        }
+        catch
         {
             success = false;
         }
@@ -155,7 +168,7 @@ public abstract class Option
     private bool isActive = false;
     protected Category category = Category.None;
     protected SubCategory subCategory = SubCategory.None;
-    
+
     public EffectFunction effectFunction;
 
     public string Name { get; set; }
@@ -171,8 +184,9 @@ public abstract class Option
     public int Cost { get; set; }
 
     public int DurationSeconds { get; set; }
+    public int RefreshInterval { get; set; } // In milliseconds
 
-    public Option(string name, string description, Category category, SubCategory subCategory, EffectFunction effectFunction, int cost = 50, int durationSeconds = 0)
+    public Option(string name, string description, Category category, SubCategory subCategory, EffectFunction effectFunction, int cost = 50, int durationSeconds = 0, int refreshInterval = 500)
     {
         Name = name;
         this.category = category;
@@ -181,15 +195,7 @@ public abstract class Option
         Cost = cost;
         Description = description;
         DurationSeconds = durationSeconds;
-    }
-
-    /// <summary>
-    /// This will check whether or not it is already running
-    /// </summary>
-    /// <returns></returns>
-    public bool IsReady()
-    {
-        return !isActive;
+        RefreshInterval = refreshInterval;
     }
 
     public EffectGrouping? GetEffectCategory()
@@ -201,7 +207,7 @@ public abstract class Option
     {
         return subCategory == SubCategory.None ? null : new EffectGrouping(subCategory.ToString());
     }
-  
+
     public abstract bool StartEffect(IPS2Connector connector);
     public virtual bool DoEffect(IPS2Connector connector) => true;
     public virtual bool StopEffect(IPS2Connector connector) => true;
@@ -238,6 +244,8 @@ public class KH2FMCrowdControl
         SummonTrainer summonTrainer = new SummonTrainer();
         HeroSora heroSora = new HeroSora();
         ZeroSora zeroSora = new ZeroSora();
+        ProCodes proCodes = new ProCodes();
+        EZCodes ezCodes = new EZCodes();
 
         Options = new List<Option>
             {
@@ -316,9 +324,10 @@ public class KH2FMCrowdControl
     #region Option Implementations
     private class OneShotSora : Option
     {
-        public OneShotSora() : base("1 Shot Sora", "Set Sora's Max and Current HP to 1.", 
-            Category.Sora, SubCategory.Stats, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public OneShotSora() : base("1 Shot Sora", "Set Sora's Max and Current HP to 1.",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private uint currentHP;
         private uint maxHP;
@@ -359,9 +368,10 @@ public class KH2FMCrowdControl
         private uint currentHP;
         private uint maxHP;
 
-        public Invulnerability() : base("Invulnerability", "Set Sora to be invulnerable.", 
-            Category.Sora, SubCategory.Stats, 
-            EffectFunction.RepeatAction, durationSeconds: 60) { }
+        public Invulnerability() : base("Invulnerability", "Set Sora to be invulnerable.",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.RepeatAction, durationSeconds: 60)
+        { }
 
         public override bool StartEffect(IPS2Connector connector)
         {
@@ -407,28 +417,51 @@ public class KH2FMCrowdControl
 
     private class WhoAmI : Option
     {
-        public WhoAmI() : base("Who Am I?", "Set Sora to a different character.", 
-            Category.ModelSwap, SubCategory.None, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public WhoAmI() : base("Who Am I?", "Set Sora to a different character.",
+            Category.ModelSwap, SubCategory.None,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private readonly List<int> values =
         [
-            ConstantValues.KH1Sora, ConstantValues.CardSora, ConstantValues.DieSora, ConstantValues.LionSora,
+            ConstantValues.KH1Sora,
+            ConstantValues.CardSora,
+            ConstantValues.DieSora,
+            ConstantValues.LionSora,
             ConstantValues.ChristmasSora,
-            ConstantValues.SpaceParanoidsSora, ConstantValues.TimelessRiverSora, ConstantValues.Roxas,
+            ConstantValues.SpaceParanoidsSora,
+            ConstantValues.TimelessRiverSora,
+            ConstantValues.Roxas,
             ConstantValues.DualwieldRoxas,
-            ConstantValues.MickeyRobed, ConstantValues.Mickey, ConstantValues.Minnie,
-            ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald, ConstantValues.TortoiseGoofy,
+            ConstantValues.MickeyRobed,
+            ConstantValues.Mickey,
+            ConstantValues.Minnie,
+            ConstantValues.Donald,
+            ConstantValues.Goofy,
+            ConstantValues.BirdDonald,
+            ConstantValues.TortoiseGoofy,
             // ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
             // ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy,
-            ConstantValues.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsGoofy,
-            ConstantValues.TimelessRiverDonald, ConstantValues.TimelessRiverGoofy, ConstantValues.Beast,
-            ConstantValues.Mulan, ConstantValues.Ping,
-            ConstantValues.Hercules, ConstantValues.Auron, ConstantValues.Aladdin, ConstantValues.JackSparrow,
+            ConstantValues.SpaceParanoidsDonald,
+            ConstantValues.SpaceParanoidsGoofy,
+            ConstantValues.TimelessRiverDonald,
+            ConstantValues.TimelessRiverGoofy,
+            ConstantValues.Beast,
+            ConstantValues.Mulan,
+            ConstantValues.Ping,
+            ConstantValues.Hercules,
+            ConstantValues.Auron,
+            ConstantValues.Aladdin,
+            ConstantValues.JackSparrow,
             ConstantValues.HalloweenJack,
-            ConstantValues.ChristmasJack, ConstantValues.Simba, ConstantValues.Tron, ConstantValues.ValorFormSora,
+            ConstantValues.ChristmasJack,
+            ConstantValues.Simba,
+            ConstantValues.Tron,
+            ConstantValues.ValorFormSora,
             ConstantValues.WisdomFormSora,
-            ConstantValues.LimitFormSora, ConstantValues.MasterFormSora, ConstantValues.FinalFormSora,
+            ConstantValues.LimitFormSora,
+            ConstantValues.MasterFormSora,
+            ConstantValues.FinalFormSora,
             ConstantValues.AntiFormSora
         ];
 
@@ -497,13 +530,22 @@ public class KH2FMCrowdControl
 
     private class BackseatDriver : Option
     {
-        public BackseatDriver() : base("Backseat Driver", "Trigger one of Sora's different forms.", 
-            Category.Sora, SubCategory.Drive, EffectFunction.TryEffect) { }
+        public BackseatDriver() : base("Backseat Driver", "Trigger one of Sora's different forms.",
+            Category.Sora, SubCategory.Drive, EffectFunction.TryEffect)
+        { }
+
+        private ushort currentKeyblade;
+        private ushort currentValorKeyblade;
+        private ushort currentMasterKeyblade;
+        private ushort currentFinalKeyblade;
 
         private readonly List<uint> values =
         [
-            ConstantValues.ReactionValor, ConstantValues.ReactionWisdom, ConstantValues.ReactionLimit,
-            ConstantValues.ReactionMaster, ConstantValues.ReactionFinal //ConstantValues.ReactionAnti
+            ConstantValues.ReactionValor,
+            ConstantValues.ReactionWisdom,
+            ConstantValues.ReactionLimit,
+            ConstantValues.ReactionMaster,
+            ConstantValues.ReactionFinal //ConstantValues.ReactionAnti
         ];
 
         public override bool StartEffect(IPS2Connector connector)
@@ -511,14 +553,32 @@ public class KH2FMCrowdControl
             bool success = true;
             // Get us out of a Drive first if we are in one
             success &= connector.WriteFloat(ConstantAddresses.DriveTime, ConstantValues.None);
+
             Thread.Sleep(200);
 
             int randomIndex = new Random().Next(values.Count);
 
+            success &= connector.Read16LE(ConstantAddresses.SoraWeaponSlot, out currentKeyblade);
+
+            // Set the current keyblade in the slot for the drive form
+            if (randomIndex == 0) // Valor
+            {
+                success &= connector.Read16LE(ConstantAddresses.SoraValorWeaponSlot, out currentValorKeyblade);
+                success &= connector.Write16LE(ConstantAddresses.SoraValorWeaponSlot, currentKeyblade);
+            }
+            else if (randomIndex == 3) // Master
+            {
+                success &= connector.Read16LE(ConstantAddresses.SoraMasterWeaponSlot, out currentMasterKeyblade);
+                success &= connector.Write16LE(ConstantAddresses.SoraMasterWeaponSlot, currentKeyblade);
+            }
+            else if (randomIndex == 4) // Final
+            {
+                success &= connector.Read16LE(ConstantAddresses.SoraValorWeaponSlot, out currentFinalKeyblade);
+                success &= connector.Write16LE(ConstantAddresses.SoraFinalWeaponSlot, currentKeyblade);
+            }
+
             success &= connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
-
             success &= connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)values[randomIndex]);
-
             success &= connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
 
             // Might be able to move this to RepeatAction?
@@ -530,6 +590,20 @@ public class KH2FMCrowdControl
                 if (value == 5) timer.Stop();
 
                 connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
+
+                // Set the current keyblade in the slot back to the original for the drive form
+                if (randomIndex == 0) // Valor
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraValorWeaponSlot, currentValorKeyblade);
+                }
+                else if (randomIndex == 3) // Master
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraMasterWeaponSlot, currentMasterKeyblade);
+                }
+                else if (randomIndex == 4) // Final
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraFinalWeaponSlot, currentFinalKeyblade);
+                }
             };
             timer.Start();
 
@@ -539,24 +613,41 @@ public class KH2FMCrowdControl
 
     private class WhoAreThey : Option
     {
-        public WhoAreThey() : base("Who Are They?", "Set Donald and Goofy to different characters.", 
-            Category.ModelSwap, SubCategory.None, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public WhoAreThey() : base("Who Are They?", "Set Donald and Goofy to different characters.",
+            Category.ModelSwap, SubCategory.None,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private readonly List<int> values =
         [
-            ConstantValues.Minnie, ConstantValues.Donald, ConstantValues.Goofy, ConstantValues.BirdDonald,
+            ConstantValues.Minnie,
+            ConstantValues.Donald,
+            ConstantValues.Goofy,
+            ConstantValues.BirdDonald,
             ConstantValues.TortoiseGoofy,
             //ConstantValues.HalloweenDonald, ConstantValues.HalloweenGoofy, - Causes crash?
             //ConstantValues.ChristmasDonald, ConstantValues.ChristmasGoofy, 
-            ConstantValues.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsGoofy,
-            ConstantValues.TimelessRiverDonald, ConstantValues.TimelessRiverGoofy, ConstantValues.Beast,
-            ConstantValues.Mulan, ConstantValues.Ping,
-            ConstantValues.Hercules, ConstantValues.Auron, ConstantValues.Aladdin, ConstantValues.JackSparrow,
+            ConstantValues.SpaceParanoidsDonald,
+            ConstantValues.SpaceParanoidsGoofy,
+            ConstantValues.TimelessRiverDonald,
+            ConstantValues.TimelessRiverGoofy,
+            ConstantValues.Beast,
+            ConstantValues.Mulan,
+            ConstantValues.Ping,
+            ConstantValues.Hercules,
+            ConstantValues.Auron,
+            ConstantValues.Aladdin,
+            ConstantValues.JackSparrow,
             ConstantValues.HalloweenJack,
-            ConstantValues.ChristmasJack, ConstantValues.Simba, ConstantValues.Tron, ConstantValues.Riku,
-            ConstantValues.AxelFriend, ConstantValues.LeonFriend,
-            ConstantValues.YuffieFriend, ConstantValues.TifaFriend, ConstantValues.CloudFriend
+            ConstantValues.ChristmasJack,
+            ConstantValues.Simba,
+            ConstantValues.Tron,
+            ConstantValues.Riku,
+            ConstantValues.AxelFriend,
+            ConstantValues.LeonFriend,
+            ConstantValues.YuffieFriend,
+            ConstantValues.TifaFriend,
+            ConstantValues.CloudFriend
         ];
 
         public override bool StartEffect(IPS2Connector connector)
@@ -603,9 +694,10 @@ public class KH2FMCrowdControl
 
     private class SlowgaSora : Option
     {
-        public SlowgaSora() : base("Slowga Sora", "Set Sora's Speed to be super slow.", 
-            Category.Sora, SubCategory.None, 
-            EffectFunction.StartTimed,durationSeconds: 30) { }
+        public SlowgaSora() : base("Slowga Sora", "Set Sora's Speed to be super slow.",
+            Category.Sora, SubCategory.None,
+            EffectFunction.StartTimed, durationSeconds: 30)
+        { }
 
         private uint speed;
         private uint speedAlt = 0;
@@ -624,16 +716,17 @@ public class KH2FMCrowdControl
 
     private class HastegaSora : Option
     {
-        public HastegaSora() : base("Hastega Sora", "Set Sora's Speed to be super fast.", 
-            Category.Sora, SubCategory.Stats, 
-            EffectFunction.StartTimed, durationSeconds: 30) { }
+        public HastegaSora() : base("Hastega Sora", "Set Sora's Speed to be super fast.",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.StartTimed, durationSeconds: 30)
+        { }
 
         private uint speed;
         private uint speedAlt = 0;
 
         public override bool StartEffect(IPS2Connector connector)
         {
-            return connector.Read32LE(ConstantAddresses.Speed, out speed) 
+            return connector.Read32LE(ConstantAddresses.Speed, out speed)
                 && connector.Write32LE(ConstantAddresses.Speed, ConstantValues.SpeedUpx2);
         }
 
@@ -646,9 +739,10 @@ public class KH2FMCrowdControl
     // NEEDS WORK -- DOESNT SEEM TO DO ANYTHING
     private class SpaceJump : Option
     {
-        public SpaceJump() : base("Space Jump", "Give Sora the ability to Space Jump.", 
-            Category.Sora, SubCategory.None, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public SpaceJump() : base("Space Jump", "Give Sora the ability to Space Jump.",
+            Category.Sora, SubCategory.None,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private uint jump;
 
@@ -667,9 +761,10 @@ public class KH2FMCrowdControl
 
     private class TinyWeapon : Option
     {
-        public TinyWeapon() : base("Tiny Weapon", "Set Sora's Weapon size to be tiny.", 
-            Category.Sora, SubCategory.None, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public TinyWeapon() : base("Tiny Weapon", "Set Sora's Weapon size to be tiny.",
+            Category.Sora, SubCategory.None,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private uint currentWeaponSize;
         private uint currentWeaponSizeAlt = 0;
@@ -697,9 +792,10 @@ public class KH2FMCrowdControl
 
     private class GiantWeapon : Option
     {
-        public GiantWeapon() : base("Giant Weapon", "Set Sora's Weapon size to be huge.", 
-            Category.Sora, SubCategory.None, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public GiantWeapon() : base("Giant Weapon", "Set Sora's Weapon size to be huge.",
+            Category.Sora, SubCategory.None,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private uint currentWeaponSize;
         private uint currentWeaponSizeAlt = 0;
@@ -725,15 +821,16 @@ public class KH2FMCrowdControl
 
     private class Struggling : Option
     {
-        public Struggling() : base("Struggling", "Change Sora's weapon to the Struggle Bat.", 
-            Category.Sora, SubCategory.Weapon, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public Struggling() : base("Struggling", "Change Sora's weapon to the Struggle Bat.",
+            Category.Sora, SubCategory.Weapon,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private ushort currentKeyblade;
 
         public override bool StartEffect(IPS2Connector connector)
         {
-            return connector.Read16LE(ConstantAddresses.SoraWeaponSlot, out currentKeyblade) && 
+            return connector.Read16LE(ConstantAddresses.SoraWeaponSlot, out currentKeyblade) &&
                 connector.Write16LE(ConstantAddresses.SoraWeaponSlot, ConstantValues.StruggleBat);
         }
 
@@ -745,19 +842,34 @@ public class KH2FMCrowdControl
 
     private class HostileParty : Option
     {
-        public HostileParty() : base("Hostile Party", "Set Donald and Goofy to random enemies.", 
-            Category.ModelSwap, SubCategory.Enemy, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public HostileParty() : base("Hostile Party", "Set Donald and Goofy to random enemies.",
+            Category.ModelSwap, SubCategory.Enemy,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private readonly List<int> values =
         [
-            ConstantValues.LeonEnemy, ConstantValues.YuffieEnemy, ConstantValues.TifaEnemy, ConstantValues.CloudEnemy,
-            ConstantValues.Xemnas, ConstantValues.Xigbar,
-            ConstantValues.Xaldin, ConstantValues.Vexen, ConstantValues.VexenAntiSora, ConstantValues.Lexaeus,
-            ConstantValues.Zexion, ConstantValues.Saix,
-            ConstantValues.AxelEnemy, ConstantValues.Demyx, ConstantValues.DemyxWaterClone, ConstantValues.Luxord,
-            ConstantValues.Marluxia, ConstantValues.Larxene,
-            ConstantValues.RoxasEnemy, ConstantValues.RoxasShadow, ConstantValues.Sephiroth,
+            ConstantValues.LeonEnemy,
+            ConstantValues.YuffieEnemy,
+            ConstantValues.TifaEnemy,
+            ConstantValues.CloudEnemy,
+            ConstantValues.Xemnas,
+            ConstantValues.Xigbar,
+            ConstantValues.Xaldin,
+            ConstantValues.Vexen,
+            ConstantValues.VexenAntiSora,
+            ConstantValues.Lexaeus,
+            ConstantValues.Zexion,
+            ConstantValues.Saix,
+            ConstantValues.AxelEnemy,
+            ConstantValues.Demyx,
+            ConstantValues.DemyxWaterClone,
+            ConstantValues.Luxord,
+            ConstantValues.Marluxia,
+            ConstantValues.Larxene,
+            ConstantValues.RoxasEnemy,
+            ConstantValues.RoxasShadow,
+            ConstantValues.Sephiroth,
             ConstantValues.LingeringWill
         ];
 
@@ -773,7 +885,7 @@ public class KH2FMCrowdControl
             connector.Write16LE(ConstantAddresses.ChristmasDonald, donald);
             success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, donald);
             success &= connector.Write16LE(ConstantAddresses.TimelessRiverDonald, donald);
-            
+
 
             success &= connector.Write16LE(ConstantAddresses.Goofy, goofy);
             success &= connector.Write16LE(ConstantAddresses.TortoiseGoofy, goofy);
@@ -792,7 +904,7 @@ public class KH2FMCrowdControl
             success &= connector.Write16LE(ConstantAddresses.ChristmasDonald, ConstantValues.ChristmasDonald);
             success &= connector.Write16LE(ConstantAddresses.SpaceParanoidsDonald, ConstantValues.SpaceParanoidsDonald);
             success &= connector.Write16LE(ConstantAddresses.TimelessRiverDonald, ConstantValues.TimelessRiverDonald);
-            
+
 
             success &= connector.Write16LE(ConstantAddresses.Goofy, ConstantValues.Goofy);
             success &= connector.Write16LE(ConstantAddresses.TortoiseGoofy, ConstantValues.TortoiseGoofy);
@@ -806,8 +918,9 @@ public class KH2FMCrowdControl
 
     private class IAmDarkness : Option
     {
-        public IAmDarkness() : base("I Am Darkness", "Change Sora to Antiform Sora.", 
-            Category.ModelSwap, SubCategory.None, EffectFunction.TryEffect) { }
+        public IAmDarkness() : base("I Am Darkness", "Change Sora to Antiform Sora.",
+            Category.ModelSwap, SubCategory.None, EffectFunction.TryEffect)
+        { }
 
         public override bool StartEffect(IPS2Connector connector)
         {
@@ -859,8 +972,9 @@ public class KH2FMCrowdControl
     // NEEDS IMPLEMENTATION
     private class KillSora : Option
     {
-        public KillSora() : base("Kill Sora", "Instantly Kill Sora.", 
-            Category.Sora, SubCategory.Stats, EffectFunction.TryEffect) { }
+        public KillSora() : base("Kill Sora", "Instantly Kill Sora.",
+            Category.Sora, SubCategory.Stats, EffectFunction.TryEffect)
+        { }
 
         public override bool StartEffect(IPS2Connector connector)
         {
@@ -871,8 +985,9 @@ public class KH2FMCrowdControl
     // NEEDS IMPLEMENTATION
     private class RandomizeControls : Option
     {
-        public RandomizeControls() : base("Randomize Controls", "Randomize the controls to the game.", 
-            Category.None, SubCategory.None, EffectFunction.StartTimed) { }
+        public RandomizeControls() : base("Randomize Controls", "Randomize the controls to the game.",
+            Category.None, SubCategory.None, EffectFunction.StartTimed)
+        { }
 
         private Dictionary<uint, uint> controls = new()
         {
@@ -892,9 +1007,10 @@ public class KH2FMCrowdControl
 
     private class ShuffleShortcuts : Option
     {
-        public ShuffleShortcuts() : base("Shuffle Shortcuts", "Set Sora's Shortcuts to random commands.", 
-            Category.Sora, SubCategory.None, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public ShuffleShortcuts() : base("Shuffle Shortcuts", "Set Sora's Shortcuts to random commands.",
+            Category.Sora, SubCategory.None,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private readonly Random random = new();
         private readonly Dictionary<int, Tuple<int, int>> values = new()
@@ -1054,8 +1170,9 @@ public class KH2FMCrowdControl
 
     private class GrowthSpurt : Option
     {
-        public GrowthSpurt() : base("Growth Spurt", "Give Sora Max Growth abilities.", Category.Sora, SubCategory.Stats, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public GrowthSpurt() : base("Growth Spurt", "Give Sora Max Growth abilities.", Category.Sora, SubCategory.Stats,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private uint startAddress;
 
@@ -1118,9 +1235,10 @@ public class KH2FMCrowdControl
 
     private class ExpertMagician : Option
     {
-        public ExpertMagician() : base("Expert Magician", "Give Sora Max Magic and lower the cost of Magic.", 
-            Category.Sora, SubCategory.Stats, 
-            EffectFunction.StartTimed, durationSeconds: 30) { }
+        public ExpertMagician() : base("Expert Magician", "Give Sora Max Magic and lower the cost of Magic.",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.StartTimed, durationSeconds: 30)
+        { }
 
         private byte fire;
         private byte blizzard;
@@ -1200,9 +1318,10 @@ public class KH2FMCrowdControl
 
     private class AmnesiacMagician : Option
     {
-        public AmnesiacMagician() : base("Amnesiac Magician", "Take away all of Sora's Magic.", 
-            Category.Sora, SubCategory.Stats, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public AmnesiacMagician() : base("Amnesiac Magician", "Take away all of Sora's Magic.",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         private byte fire;
         private byte blizzard;
@@ -1246,9 +1365,10 @@ public class KH2FMCrowdControl
 
     private class Itemaholic : Option
     {
-        public Itemaholic() : base("Itemaholic", "Fill Sora's inventory with all items, accessories, armor and weapons.", 
-            Category.Sora, SubCategory.Stats, 
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+        public Itemaholic() : base("Itemaholic", "Fill Sora's inventory with all items, accessories, armor and weapons.",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> items = new()
@@ -1353,9 +1473,10 @@ public class KH2FMCrowdControl
 
     private class SpringCleaning : Option
     {
-        public SpringCleaning() : base("Spring Cleaning", "Remove all items, accessories, armor and weapons from Sora's inventory.", 
-            Category.Sora, SubCategory.Stats, 
-            EffectFunction.TryEffect, durationSeconds: 60) { }
+        public SpringCleaning() : base("Spring Cleaning", "Remove all items, accessories, armor and weapons from Sora's inventory.",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.TryEffect, durationSeconds: 60)
+        { }
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> items = new()
@@ -1465,9 +1586,10 @@ public class KH2FMCrowdControl
 
     private class SummonChauffeur : Option
     {
-        public SummonChauffeur() : base("Summon Chauffeur", "Give all Drives and Summons to Sora.", 
+        public SummonChauffeur() : base("Summon Chauffeur", "Give all Drives and Summons to Sora.",
             Category.Sora, SubCategory.Summon,
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> drivesSummons = new()
@@ -1529,9 +1651,10 @@ public class KH2FMCrowdControl
 
     private class SummonTrainer : Option
     {
-        public SummonTrainer() : base("Summon Trainer", "Remove all Drives and Summons from Sora.", 
+        public SummonTrainer() : base("Summon Trainer", "Remove all Drives and Summons from Sora.",
             Category.Sora, SubCategory.Summon,
-            EffectFunction.StartTimed, durationSeconds: 60) { }
+            EffectFunction.StartTimed, durationSeconds: 60)
+        { }
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> drivesSummons = new()
@@ -1575,8 +1698,8 @@ public class KH2FMCrowdControl
 
     private class HeroSora : Option
     {
-        public HeroSora() : base("Hero Sora", "Set Sora to HERO mode, including Stats, Items, Magic, Drives and Summons.", 
-            Category.Sora, SubCategory.Stats, 
+        public HeroSora() : base("Hero Sora", "Set Sora to HERO mode, including Stats, Items, Magic, Drives and Summons.",
+            Category.Sora, SubCategory.Stats,
             EffectFunction.StartTimed, durationSeconds: 30)
         {
             expertMagician = new ExpertMagician();
@@ -1624,7 +1747,7 @@ public class KH2FMCrowdControl
             success &= expertMagician.StartEffect(connector);
             success &= itemaholic.StartEffect(connector);
             success &= summonChauffeur.StartEffect(connector);
-            
+
             return success;
         }
 
@@ -1652,8 +1775,8 @@ public class KH2FMCrowdControl
 
     private class ZeroSora : Option
     {
-        public ZeroSora() : base("Zero Sora", "Set Sora to ZERO mode, including Stats, Items, Magic, Drives and Summons.", 
-            Category.Sora, SubCategory.Stats, 
+        public ZeroSora() : base("Zero Sora", "Set Sora to ZERO mode, including Stats, Items, Magic, Drives and Summons.",
+            Category.Sora, SubCategory.Stats,
             EffectFunction.StartTimed, durationSeconds: 30)
         {
             amnesiacMagician = new AmnesiacMagician();
@@ -1722,6 +1845,86 @@ public class KH2FMCrowdControl
             success &= amnesiacMagician.StopEffect(connector);
             success &= springCleaning.StopEffect(connector);
             success &= summonTrainer.StopEffect(connector);
+
+            return success;
+        }
+    }
+
+    private class ProCodes : Option
+    {
+        public ProCodes() : base("Pro-Codes", "Set Sora to consistently lose HP, MP and Drive Gauges",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.RepeatAction, durationSeconds: 60, refreshInterval: 1000)
+        {
+        }
+
+        private uint hp;
+        private uint mp;
+        private uint drive;
+
+        public override bool StartEffect(IPS2Connector connector)
+        {
+            bool success = true;
+
+            success &= connector.Read32LE(ConstantAddresses.HP, out hp);
+            success &= connector.Read32LE(ConstantAddresses.MP, out mp);
+            success &= connector.Read32LE(ConstantAddresses.Drive, out drive);
+
+            return success;
+        }
+
+        public override bool DoEffect(IPS2Connector connector)
+        {
+            bool success = true;
+
+            success &= connector.Write32LE(ConstantAddresses.HP, hp - 1);
+            success &= connector.Write32LE(ConstantAddresses.MP, mp - 1);
+
+            // Limit this to drop only 6 at most
+            if (hp % 10 == 0)
+            {
+                success &= connector.Write32LE(ConstantAddresses.Drive, drive - 1);
+            }
+
+            return success;
+        }
+    }
+
+    private class EZCodes : Option
+    {
+        public EZCodes() : base("EZ-Codes", "Set Sora to consistently gain HP, MP and Drive Gauges",
+            Category.Sora, SubCategory.Stats,
+            EffectFunction.RepeatAction, durationSeconds: 60, refreshInterval: 1000)
+        {
+        }
+
+        private uint hp;
+        private uint mp;
+        private uint drive;
+
+        public override bool StartEffect(IPS2Connector connector)
+        {
+            bool success = true;
+
+            success &= connector.Read32LE(ConstantAddresses.HP, out hp);
+            success &= connector.Read32LE(ConstantAddresses.MP, out mp);
+            success &= connector.Read32LE(ConstantAddresses.Drive, out drive);
+
+            return success;
+        }
+
+        public override bool DoEffect(IPS2Connector connector)
+        {
+            bool success = true;
+
+            success &= connector.Write32LE(ConstantAddresses.HP, hp + 1);
+            success &= connector.Write32LE(ConstantAddresses.MP, mp + 1);
+
+            // Limit this to gain only 6 at most
+            if (hp % 10 == 0)
+            {
+                success &= connector.Write32LE(ConstantAddresses.Drive, drive + 1);
+            }
 
             return success;
         }
@@ -2078,7 +2281,7 @@ public static class ConstantAddresses
     public static uint MagicBoostStat = 0x2032E02A;
     public static uint DefenseBoostStat = 0x2032E02B;
     public static uint APBoostStat = 0x2032E028;
-    public static uint Speed = 0x21CE2FE4;
+    public static uint Speed = 0x21ACDDE4;
     #endregion Stats
 
     #region Summons
