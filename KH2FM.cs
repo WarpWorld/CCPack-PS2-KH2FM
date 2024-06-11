@@ -1,6 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using ConnectorLib;
+using CrowdControl.Common;
+using JetBrains.Annotations;
 using ConnectorType = CrowdControl.Common.ConnectorType;
 using Log = CrowdControl.Common.Log;
 using Timer = System.Timers.Timer;
@@ -92,7 +97,7 @@ public class KH2FM : PS2EffectPack
                 break;
             case EffectFunction.RepeatAction:
                 var action = RepeatAction(
-                    requeset: request,
+                    request: request,
                     startCondition: () => IsGameInPlay(),
                     startAction: () => option.StartEffect(Connector),
                     startRetry: TimeSpan.FromSeconds(1),
