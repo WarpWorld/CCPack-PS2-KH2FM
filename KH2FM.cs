@@ -44,6 +44,7 @@ public class KH2FM : PS2EffectPack
                 kh2FMCrowdControl.FixTPose(Connector);
             }
         };
+
         timer.Start();
     }
 
