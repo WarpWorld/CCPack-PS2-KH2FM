@@ -80,7 +80,7 @@ public class KH2FM : PS2EffectPack
 
         if (!GetOptionForRequest(request, out Option? option))
         {
-            Respond(request, EffectStatus.FailPermanent, StandardErrors.UnknownEffect(request));
+            Respond(request, EffectStatus.FailPermanent, StandardErrors.UnknownEffect, request);
             return;
         }
 
