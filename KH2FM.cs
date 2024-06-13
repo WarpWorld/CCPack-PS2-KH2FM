@@ -52,16 +52,22 @@ public class KH2FM : PS2EffectPack
         return kh2FMCrowdControl.Options.TryGetValue(effectId, out option);
     }
 
-    private bool IsGameInPlay()
+    #region Game State Checks
+
+    private bool IsGameInPlay() => IsReady(null);
+
+    // do all actual statechecking here - kat
+    protected override GameState GetGameState()
     {
-        bool readSuccessful = Connector.Read32LE(0x2035F314, out uint gameState);
-        return readSuccessful && gameState == 1;
+        if (!Connector.Read32LE(0x2035F314, out uint gameState)) return GameState.Unknown;
+        if (gameState != 1) return GameState.WrongMode;
+
+        // it would be awesome if someone could fill this in a bit more - kat
+
+        return GameState.Ready;
     }
 
-    protected override bool IsReady(EffectRequest request)
-    {
-        return IsGameInPlay();
-    }
+    #endregion
 
     protected override void StartEffect(EffectRequest request)
     {
@@ -74,7 +80,7 @@ public class KH2FM : PS2EffectPack
 
         if (!GetOptionForRequest(request, out Option? option))
         {
-            Respond(request, EffectStatus.FailPermanent);
+            Respond(request, EffectStatus.FailPermanent, StandardErrors.UnknownEffect(request));
             return;
         }
 
@@ -83,8 +89,8 @@ public class KH2FM : PS2EffectPack
             case EffectFunction.StartTimed:
                 var timed = StartTimed(
                     request,
-                    () => IsGameInPlay(),
-                    () => IsGameInPlay(),
+                    IsGameInPlay,
+                    IsGameInPlay,
                     TimeSpan.FromMilliseconds(500),
                     () => option.StartEffect(Connector),
                     kh2FMCrowdControl.OptionConflicts[option.Id]
@@ -93,10 +99,10 @@ public class KH2FM : PS2EffectPack
                 break;
             case EffectFunction.RepeatAction:
                 var action = RepeatAction(request,
-                        () => IsGameInPlay(),
+                        IsGameInPlay,
                         () => option.StartEffect(Connector),
                         TimeSpan.FromSeconds(1),
-                        () => IsGameInPlay(),
+                        IsGameInPlay,
                         TimeSpan.FromMilliseconds(500),
                         () => option.DoEffect(Connector),
                         TimeSpan.FromMilliseconds(500),
@@ -108,7 +114,7 @@ public class KH2FM : PS2EffectPack
             default:
                 TryEffect(
                     request,
-                    () => IsGameInPlay(),
+                    IsGameInPlay,
                     () => option.StartEffect(Connector),
                     () => option.StopEffect(Connector),
                     true,
@@ -217,30 +223,30 @@ public class KH2FMCrowdControl
 
     public KH2FMCrowdControl()
     {
-        OneShotSora oneShotSora = new OneShotSora();
-        HealSora healSora = new HealSora();
-        Invulnerability invulnerability = new Invulnerability();
-        MoneybagsSora moneybagsSora = new MoneybagsSora();
-        RobSora robSora = new RobSora();
-        GrowthSpurt growthSpurt = new GrowthSpurt();
-        SlowgaSora slowgaSora = new SlowgaSora();
-        TinyWeapon tinyWeapon = new TinyWeapon();
-        GiantWeapon giantWeapon = new GiantWeapon();
-        Struggling struggling = new Struggling();
-        WhoAreThey whoAreThey = new WhoAreThey();
-        HostileParty hostileParty = new HostileParty();
-        ShuffleShortcuts shuffleShortcuts = new ShuffleShortcuts();
-        HastegaSora hastegaSora = new HastegaSora();
-        IAmDarkness iAmDarkness = new IAmDarkness();
-        BackseatDriver backseatDriver = new BackseatDriver();
-        ExpertMagician expertMagician = new ExpertMagician();
-        AmnesiacMagician amnesiacMagician = new AmnesiacMagician();
-        Itemaholic itemaholic = new Itemaholic();
-        SpringCleaning springCleaning = new SpringCleaning();
-        SummonChauffeur summonChauffeur = new SummonChauffeur();
-        SummonTrainer summonTrainer = new SummonTrainer();
-        HeroSora heroSora = new HeroSora();
-        ZeroSora zeroSora = new ZeroSora();
+        OneShotSora oneShotSora = new();
+        HealSora healSora = new();
+        Invulnerability invulnerability = new();
+        MoneybagsSora moneybagsSora = new();
+        RobSora robSora = new();
+        GrowthSpurt growthSpurt = new();
+        SlowgaSora slowgaSora = new();
+        TinyWeapon tinyWeapon = new();
+        GiantWeapon giantWeapon = new();
+        Struggling struggling = new();
+        WhoAreThey whoAreThey = new();
+        HostileParty hostileParty = new();
+        ShuffleShortcuts shuffleShortcuts = new();
+        HastegaSora hastegaSora = new();
+        IAmDarkness iAmDarkness = new();
+        BackseatDriver backseatDriver = new();
+        ExpertMagician expertMagician = new();
+        AmnesiacMagician amnesiacMagician = new();
+        Itemaholic itemaholic = new();
+        SpringCleaning springCleaning = new();
+        SummonChauffeur summonChauffeur = new();
+        SummonTrainer summonTrainer = new();
+        HeroSora heroSora = new();
+        ZeroSora zeroSora = new();
 
         Options = new List<Option>
             {
@@ -270,19 +276,21 @@ public class KH2FMCrowdControl
         // Used to populate mutexes
         OptionConflicts = new Dictionary<string, string[]>
             {
-                { oneShotSora.Id, new [] { oneShotSora.Id, healSora.Id, invulnerability.Id } },
-                { healSora.Id, new [] { healSora.Id, oneShotSora.Id, invulnerability.Id } },
-                { tinyWeapon.Id, new [] { tinyWeapon.Id, giantWeapon.Id } },
-                { giantWeapon.Id, new [] { tinyWeapon.Id, giantWeapon.Id } },
-                { iAmDarkness.Id, new [] { iAmDarkness.Id, backseatDriver.Id, heroSora.Id, zeroSora.Id } },
-                { backseatDriver.Id, new [] { backseatDriver.Id, iAmDarkness.Id, heroSora.Id, zeroSora.Id } },
-                { expertMagician.Id, new [] { expertMagician.Id, amnesiacMagician.Id, heroSora.Id, zeroSora.Id } },
-                { amnesiacMagician.Id, new [] { amnesiacMagician.Id, expertMagician.Id, heroSora.Id, zeroSora.Id } },
-                { itemaholic.Id, new [] { itemaholic.Id, springCleaning.Id, heroSora.Id, zeroSora.Id } },
-                { springCleaning.Id, new [] { springCleaning.Id, itemaholic.Id, heroSora.Id, zeroSora.Id } },
-                { summonChauffeur.Id, new [] { summonChauffeur.Id, summonTrainer.Id, heroSora.Id, zeroSora.Id } },
-                { summonTrainer.Id, new [] { summonTrainer.Id, summonChauffeur.Id, heroSora.Id, zeroSora.Id } },
-                { heroSora.Id, new [] { heroSora.Id, zeroSora.Id, itemaholic.Id, springCleaning.Id, summonChauffeur.Id, summonTrainer.Id, expertMagician.Id, amnesiacMagician.Id } },
+                { oneShotSora.Id, [oneShotSora.Id, healSora.Id, invulnerability.Id] },
+                { healSora.Id, [healSora.Id, oneShotSora.Id, invulnerability.Id] },
+                { tinyWeapon.Id, [tinyWeapon.Id, giantWeapon.Id] },
+                { giantWeapon.Id, [tinyWeapon.Id, giantWeapon.Id] },
+                { iAmDarkness.Id, [iAmDarkness.Id, backseatDriver.Id, heroSora.Id, zeroSora.Id] },
+                { backseatDriver.Id, [backseatDriver.Id, iAmDarkness.Id, heroSora.Id, zeroSora.Id] },
+                { expertMagician.Id, [expertMagician.Id, amnesiacMagician.Id, heroSora.Id, zeroSora.Id] },
+                { amnesiacMagician.Id, [amnesiacMagician.Id, expertMagician.Id, heroSora.Id, zeroSora.Id] },
+                { itemaholic.Id, [itemaholic.Id, springCleaning.Id, heroSora.Id, zeroSora.Id] },
+                { springCleaning.Id, [springCleaning.Id, itemaholic.Id, heroSora.Id, zeroSora.Id] },
+                { summonChauffeur.Id, [summonChauffeur.Id, summonTrainer.Id, heroSora.Id, zeroSora.Id] },
+                { summonTrainer.Id, [summonTrainer.Id, summonChauffeur.Id, heroSora.Id, zeroSora.Id] },
+                { heroSora.Id, [heroSora.Id, zeroSora.Id, itemaholic.Id, springCleaning.Id, summonChauffeur.Id, summonTrainer.Id, expertMagician.Id, amnesiacMagician.Id
+                    ]
+                },
             };
     }
 
