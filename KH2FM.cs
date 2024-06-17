@@ -71,13 +71,6 @@ public class KH2FM : PS2EffectPack
 
     protected override void StartEffect(EffectRequest request)
     {
-        base.StartEffect(request);
-        if (!IsReady(request))
-        {
-            DelayEffect(request);
-            return;
-        }
-
         if (!GetOptionForRequest(request, out Option? option))
         {
             Respond(request, EffectStatus.FailPermanent, StandardErrors.UnknownEffect, request);
