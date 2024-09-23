@@ -64,9 +64,50 @@ public class KH2FM : PS2EffectPack
     // do all actual statechecking here - kat
     protected override GameState GetGameState()
     {
-        if (!Connector.Read32LE(0x2035F314, out uint gameState)) return GameState.Unknown;
-        if (gameState != 1) return GameState.WrongMode;
+        bool success = true;
+        string gameStateString = string.Empty;
 
+        success &= Connector.Read32LE(0x2035F314, out uint gameState);
+        success &= Connector.Read32LE(0x20341708, out uint animationStateOffset);
+        success &= Connector.Read32LE(0x2033CC38, out uint cameraLockState);
+        success &= Connector.Read32LE(0x21C60CE0, out uint transitionState);
+
+        if (!success)
+        {
+            return GameState.Unknown;
+        }
+
+        // Set the state
+
+        if (gameState == 1 && cameraLockState == 0 && transitionState == 1 && animationStateOffset != 0)
+        {
+            gameStateString = "Ready";
+        }
+        else if (gameState == 1 && cameraLockState == 1 && transitionState == 1 && animationStateOffset != 0)
+        {
+            gameStateString = "Uncontrollable";
+        }
+        else if (gameState == 0 && cameraLockState == 0 && transitionState == 0 && animationStateOffset == 0)
+        {
+            gameStateString = "Dead";
+        }
+        else if (gameState == 0 && cameraLockState == 0 && transitionState == 1 && animationStateOffset != 0)
+        {
+            gameStateString = "Pause";
+        }
+        else if (gameState == 1 && cameraLockState == 1 && transitionState == 0 && animationStateOffset == 0)
+        {
+            gameStateString = "Cutscene";
+        }
+        else
+        {
+            gameStateString = "Unknown";
+        }
+
+        if (gameStateString != "Ready")
+        {
+            return GameState.WrongMode;
+        }
         // it would be awesome if someone could fill this in a bit more - kat
 
         return GameState.Ready;
