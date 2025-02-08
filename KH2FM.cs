@@ -5,6 +5,10 @@ using JetBrains.Annotations;
 using Log = CrowdControl.Common.Log;
 using System.Diagnostics.CodeAnalysis;
 using Timer = System.Timers.Timer;
+using Newtonsoft.Json;
+using System.Linq;
+using System;
+using System.Collections.Generic;
 // ReSharper disable CommentTypo
 
 namespace CrowdControl.Games.Packs.KH2FM;
@@ -50,7 +54,18 @@ public class KH2FM : PS2EffectPack
         Log.Debug($"Requested Effect Id (FinalCode): {effectId}");
         var availableEffectIds = kh2FMCrowdControl.Options.Select((pair) => pair.Key).ToList();
         Log.Debug("Available Effect Ids: " + string.Join(", ", availableEffectIds));
+        bool effectIsAvailable = kh2FMCrowdControl.Options.Any(x => x.Key == effectId);
+        Log.Debug($"Is Requested Effect Id Available: {effectIsAvailable}"); 
         return kh2FMCrowdControl.Options.TryGetValue(effectId, out option);
+    }
+
+    private string[] GetOptionConflictsForRequest(string optionId)
+    {
+        if(kh2FMCrowdControl.OptionConflicts.TryGetValue(optionId, out string[]? conflicts)) {
+            return conflicts;
+        } else {
+            return new string[0];
+        }
     }
 
     #region Game State Checks
@@ -119,6 +134,8 @@ public class KH2FM : PS2EffectPack
             return;
         }
 
+        string[] conflicts = GetOptionConflictsForRequest(option.Id);
+
         switch (option.effectFunction)
         {
             case EffectFunction.StartTimed:
@@ -128,7 +145,7 @@ public class KH2FM : PS2EffectPack
                     continueCondition: () => IsGameInPlay(),
                     continueConditionInterval: TimeSpan.FromMilliseconds(500),
                     action: () => option.StartEffect(Connector),
-                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id]
+                    mutex: conflicts
                 );
                 timed.WhenCompleted.Then(_ => option.StopEffect(Connector));
                 break;
@@ -143,7 +160,7 @@ public class KH2FM : PS2EffectPack
                     refreshAction: () => option.DoEffect(Connector),
                     refreshInterval: TimeSpan.FromMilliseconds(option.RefreshInterval),
                     extendOnFail: true,
-                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id]
+                    mutex: conflicts
                 );
                 action.WhenCompleted.Then(_ => option.StopEffect(Connector));
                 break;
@@ -155,7 +172,7 @@ public class KH2FM : PS2EffectPack
                     followUp: () => option.StopEffect(Connector),
                     retryDelay: TimeSpan.FromMilliseconds(500),
                     retryOnFail: true,
-                    mutex: kh2FMCrowdControl.OptionConflicts[option.Id],
+                    mutex: conflicts,
                     holdMutex: TimeSpan.FromMilliseconds(500)
                 );
                 break;
