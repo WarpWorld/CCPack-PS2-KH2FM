@@ -9,6 +9,7 @@ using Newtonsoft.Json;
 using System.Linq;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 // ReSharper disable CommentTypo
 
 namespace CrowdControl.Games.Packs.KH2FM;
@@ -625,17 +626,29 @@ public class KH2FMCrowdControl
             if (randomIndex == 0) // Valor
             {
                 success &= connector.Read16LE(ConstantAddresses.SoraValorWeaponSlot, out currentValorKeyblade);
-                success &= connector.Write16LE(ConstantAddresses.SoraValorWeaponSlot, currentKeyblade);
+                
+                if (currentValorKeyblade < 0x41 || currentValorKeyblade == 0x81) // 0x81 seems to be a default (maybe just randomizer)
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraValorWeaponSlot, currentKeyblade);
+                }
             }
             else if (randomIndex == 3) // Master
             {
                 success &= connector.Read16LE(ConstantAddresses.SoraMasterWeaponSlot, out currentMasterKeyblade);
-                success &= connector.Write16LE(ConstantAddresses.SoraMasterWeaponSlot, currentKeyblade);
+
+                if (currentMasterKeyblade < 0x41 || currentMasterKeyblade == 0x44) // 0x44 seems to be a default (maybe just randomizer)
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraMasterWeaponSlot, currentKeyblade);
+                }
             }
             else if (randomIndex == 4) // Final
             {
-                success &= connector.Read16LE(ConstantAddresses.SoraValorWeaponSlot, out currentFinalKeyblade);
-                success &= connector.Write16LE(ConstantAddresses.SoraFinalWeaponSlot, currentKeyblade);
+                success &= connector.Read16LE(ConstantAddresses.SoraFinalWeaponSlot, out currentFinalKeyblade);
+
+                if (currentFinalKeyblade < 0x41 || currentFinalKeyblade == 0x45) // 0x45 seems to be a default (maybe just randomizer)
+                {
+                    success &= connector.Write16LE(ConstantAddresses.SoraFinalWeaponSlot, currentKeyblade);
+                }
             }
 
             success &= connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
@@ -643,28 +656,24 @@ public class KH2FMCrowdControl
             success &= connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
 
             // Might be able to move this to RepeatAction?
-            Timer timer = new(100);
-            timer.Elapsed += (_, _) =>
+            Timer timer = new()
+            {
+                AutoReset = true,
+                Enabled = true,
+                Interval = 10
+            };
+
+            timer.Elapsed += (obj, ev) =>
             {
                 connector.Read16LE(ConstantAddresses.ReactionEnable, out ushort value);
 
-                if (value == 5) timer.Stop();
+                if (value == 5 || DateTime.Compare(DateTime.Now, ev.SignalTime.AddSeconds(30)) > 0) timer.Stop();
 
-                connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
-
-                // Set the current keyblade in the slot back to the original for the drive form
-                if (randomIndex == 0) // Valor
-                {
-                    success &= connector.Write16LE(ConstantAddresses.SoraValorWeaponSlot, currentValorKeyblade);
-                }
-                else if (randomIndex == 3) // Master
-                {
-                    success &= connector.Write16LE(ConstantAddresses.SoraMasterWeaponSlot, currentMasterKeyblade);
-                }
-                else if (randomIndex == 4) // Final
-                {
-                    success &= connector.Write16LE(ConstantAddresses.SoraFinalWeaponSlot, currentFinalKeyblade);
-                }
+                connector.Write8((ulong)ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
+                connector.Write8(0x2034D3C1, 0x10);
+                connector.Write8(0x2034D4DD, 0xEF);
+                connector.Write8(0x2034D466, 0xFF);
+                connector.Write8(0x2034D4E6, 0xFF);
             };
             timer.Start();
 
@@ -2989,7 +2998,7 @@ public static class ConstantValues
     public static int ReflectQuickSlotValue = 0xB1;
     #endregion Quick Slot Values
 
-    public static uint Triangle = 0xEF;
+    public static byte Triangle = 0xEF;
     public static uint TinyWeapon = 0x3F000000;
     public static uint NormalWeapon = 0x3F800000;
     public static uint BigWeapon = 0xC1000000;
