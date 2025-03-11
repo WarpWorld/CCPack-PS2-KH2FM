@@ -1,9 +1,9 @@
-﻿using ConnectorLib;
-using ConnectorType = CrowdControl.Common.ConnectorType;
+﻿using System.Diagnostics.CodeAnalysis;
+using ConnectorLib;
 using CrowdControl.Common;
 using JetBrains.Annotations;
+using ConnectorType = CrowdControl.Common.ConnectorType;
 using Log = CrowdControl.Common.Log;
-using System.Diagnostics.CodeAnalysis;
 using Timer = System.Timers.Timer;
 // ReSharper disable CommentTypo
 
