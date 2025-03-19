@@ -42,16 +42,17 @@ public static class EquipmentAddresses {
     /// or to store the quantities of that inventory.
     /// 
     /// Key: Memory address for the inventory slot
-    /// Value: Equipment, item, or accessory assigned to the slot. Initialized to zero.
+    /// Value: Equipment, item, or accessory assigned to the slot. 
+    //  Initialized to Kingdom Key for keyblade slots and zero for everything else.
     /// 
     /// </summary>
     /// <returns>a dictionary with each inventory address and a value of zero</returns>
     public static Dictionary<uint, ushort> MakeSoraInventorySlotsDictionary() {
         return new Dictionary<uint, ushort> {
-            { SoraWeaponSlot, 0 },
-            { SoraValorWeaponSlot, 0 },
-            { SoraMasterWeaponSlot, 0 },
-            { SoraFinalWeaponSlot, 0 },
+            { SoraWeaponSlot, (ushort) KeybladeValues.KingdomKey },
+            { SoraValorWeaponSlot, (ushort) KeybladeValues.KingdomKey },
+            { SoraMasterWeaponSlot, (ushort) KeybladeValues.KingdomKey },
+            { SoraFinalWeaponSlot, (ushort) KeybladeValues.KingdomKey },
             { SoraArmorSlot1, 0 },
             { SoraArmorSlot2, 0 },
             { SoraArmorSlot3, 0 },
