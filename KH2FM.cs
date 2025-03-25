@@ -258,11 +258,4 @@ public partial class KH2FM : PS2EffectPack, IHandlerCollection
     {
         return base.StopAllEffects();
     }
-
-    public override ROMTable ROMTable => new [] {
-        // putting this in to take a step towards satisfying the QA check
-        // will need to get proper MD5 for the ROM but the CC Dev Kit only supports getting the hash for files under 2GB.
-        new ROMInfo("Kingdom Hearts II: Final Mix (English Patch)", ROMStatus.ValidPatched, s => true),
-    };
-
 }
