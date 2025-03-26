@@ -48,9 +48,9 @@ public partial class KH2FM {
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;
 
-        public override IList<String> Codes { get; } = new [] { EffectIds.WhoAreThey };
+        public override IList<String> Codes { get; } = [EffectIds.WhoAreThey];
 
-        public override IList<String> Mutexes { get; } = new [] { EffectIds.WhoAmI, EffectIds.WhoAreThey, EffectIds.HostileParty };
+        public override Mutex Mutexes { get; } = [EffectIds.WhoAmI, EffectIds.WhoAreThey, EffectIds.HostileParty];
 
         public override bool StartAction()
         {

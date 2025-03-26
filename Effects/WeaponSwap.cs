@@ -14,9 +14,9 @@ public partial class KH2FM {
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;
 
-        public override IList<String> Codes { get; } = new [] { EffectIds.Struggling, EffectIds.Ultima };
+        public override IList<String> Codes { get; } = [EffectIds.Struggling, EffectIds.Ultima];
 
-        public override IList<String> Mutexes { get; } = new [] { EffectIds.Struggling, EffectIds.Ultima };
+        public override Mutex Mutexes { get; } = [EffectIds.Struggling, EffectIds.Ultima];
 
         public override bool StartAction()
         {
