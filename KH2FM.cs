@@ -19,7 +19,7 @@ namespace CrowdControl.Games.Packs.KH2FM;
 [UsedImplicitly]
 public partial class KH2FM : PS2EffectPack, IHandlerCollection
 {
-    public override Game Game { get; } = new(name: "Kingdom Hearts II: Final Mix", id: "KH2FM", path: "PS2", ConnectorType.PS2Connector);
+    public override Game Game { get; } = new("Kingdom Hearts II: Final Mix", "KH2FM", "PS2", ConnectorType.PS2Connector);
 
     public override EffectList Effects { get; } = new Effect[] {
         new("Heal Sora", EffectIds.HealSora) {

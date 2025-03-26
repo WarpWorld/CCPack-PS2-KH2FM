@@ -14,14 +14,15 @@ public partial class KH2FM {
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;
 
-        public override IList<String> Codes { get; } = new [] { EffectIds.SummonTrainer };
+        public override IList<String> Codes { get; } = [EffectIds.SummonTrainer];
 
-        public override IList<String> Mutexes { get; } = new [] { 
+        public override Mutex Mutexes { get; } =
+        [
             EffectIds.SummonChauffeur,
             EffectIds.SummonTrainer,
             EffectIds.HeroSora,
-            EffectIds.ZeroSora,
-        };
+            EffectIds.ZeroSora
+        ];
 
         // Used to store all the information about what held items Sora had before
         private readonly Dictionary<uint, byte> drivesSummons = new()
