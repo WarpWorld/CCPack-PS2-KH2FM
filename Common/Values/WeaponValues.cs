@@ -1,5 +1,3 @@
-using System;
-
 namespace CrowdControl.Games.Packs.KH2FM;
 
 public static class WeaponValues {

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using CrowdControl.Common;
 
 namespace CrowdControl.Games.Packs.KH2FM;

@@ -1,15 +1,9 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using ConnectorLib;
+﻿using ConnectorLib;
 using CrowdControl.Common;
 using JetBrains.Annotations;
 using ConnectorType = CrowdControl.Common.ConnectorType;
 using Log = CrowdControl.Common.Log;
 using Timer = System.Timers.Timer;
-using Newtonsoft.Json;
-using System.Linq;
-using System;
-using System.Collections.Generic;
-using System.Threading;
 using CrowdControl.Games.SmartEffects;
 // ReSharper disable CommentTypo
 
