@@ -16,6 +16,10 @@ public partial class KH2FM {
         public override Mutex Mutexes { get; } =
         [
             EffectIds.Itemaholic,
+            EffectIds.AllBaseItems,
+            EffectIds.AllAccessories,
+            EffectIds.AllArmors,
+            EffectIds.AllKeyblades,
             EffectIds.SpringCleaning,
             EffectIds.HeroSora,
             EffectIds.ZeroSora

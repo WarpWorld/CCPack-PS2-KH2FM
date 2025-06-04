@@ -47,11 +47,11 @@ public static class Utils {
 
             if (value == 5 || DateTime.Compare(DateTime.Now, ev.SignalTime.AddSeconds(30)) > 0) timer.Stop();
 
-            connector.Write8((ulong)DriveAddresses.ButtonPress, (byte)ButtonValues.Triangle);
-            connector.Write8(0x2034D3C1, 0x10);
-            connector.Write8(0x2034D4DD, 0xEF);
-            connector.Write8(0x2034D466, 0xFF);
-            connector.Write8(0x2034D4E6, 0xFF);
+            connector.Write8(ButtonAddresses.ButtonsPressed, (byte)ButtonValues.Triangle);
+            connector.Write8(ButtonAddresses.ButtonMask, 0x10);
+            connector.Write8(ButtonAddresses.ButtonsDown, 0xEF);
+            connector.Write8(ButtonAddresses.TriangleDown, 0xFF); // Triangle button down
+            connector.Write8(ButtonAddresses.TrianglePressed, 0xFF); // Triangle button pressed
         };
         timer.Start();
     }

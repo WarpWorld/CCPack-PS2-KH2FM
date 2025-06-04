@@ -4,7 +4,7 @@ using CrowdControl.Games.SmartEffects;
 namespace CrowdControl.Games.Packs.KH2FM;
 
 public partial class KH2FM {
-    [EffectHandler("struggling", "ultima")]
+    [EffectHandler("struggling", "ultima", "forbidden_keyblade")]
     public class WeaponSwap : BaseEffect
     {
         private ushort? currentKeyblade = null;
@@ -12,9 +12,9 @@ public partial class KH2FM {
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;
 
-        public override IList<String> Codes { get; } = [EffectIds.Struggling, EffectIds.Ultima];
+        public override IList<string> Codes { get; } = new [] { EffectIds.Struggling, EffectIds.Ultima, EffectIds.ForbiddenKeyblade };
 
-        public override Mutex Mutexes { get; } = [EffectIds.Struggling, EffectIds.Ultima];
+        public override Mutex Mutexes { get; } = new [] { EffectIds.Struggling, EffectIds.Ultima, EffectIds.ForbiddenKeyblade };
 
         public override bool StartAction()
         {
@@ -24,7 +24,7 @@ public partial class KH2FM {
             if (currentKeyblade == null) {
                 currentKeyblade = currKeyblade;
             }
-            success &= Connector.Write16LE(EquipmentAddresses.SoraWeaponSlot, (ushort) Lookup(KeybladeValues.StruggleBat, KeybladeValues.UltimaWeapon));
+            success &= Connector.Write16LE(EquipmentAddresses.SoraWeaponSlot, (ushort) Lookup(KeybladeValues.StruggleBat, KeybladeValues.UltimaWeapon, KeybladeValues.Mulan));
             return success;
         }
 

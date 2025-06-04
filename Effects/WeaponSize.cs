@@ -13,9 +13,17 @@ public partial class KH2FM {
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;
 
-        public override IList<String> Codes { get; } = [EffectIds.TinyWeapon, EffectIds.GiantWeapon];
+        public override IList<String> Codes { get; } = new [] { 
+            EffectIds.TinyWeapon, 
+            EffectIds.GiantWeapon,
+            EffectIds.IAmDarkness
+        };
 
-        public override Mutex Mutexes { get; } = [EffectIds.TinyWeapon, EffectIds.GiantWeapon];
+        public override Mutex Mutexes { get; } = new [] { 
+            EffectIds.TinyWeapon, 
+            EffectIds.GiantWeapon,
+            EffectIds.IAmDarkness
+        };
 
         public override bool StartAction()
         {

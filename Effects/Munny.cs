@@ -21,7 +21,7 @@ public partial class KH2FM {
         {
             bool success = Connector.Read32LE(MiscAddresses.Munny, out uint munny);
             // Quantity is injected by CC based on the Parameters field above 
-            int newAmount = (int)munny + (int)Quantity * Lookup(1, -1);
+            int newAmount = (int)munny + (int)Quantity * Lookup(10, -10);
             return success && Connector.Write32LE(MiscAddresses.Munny, (uint)newAmount);
         }
     }

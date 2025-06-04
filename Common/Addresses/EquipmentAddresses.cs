@@ -80,7 +80,8 @@ public static class EquipmentAddresses {
     public static uint DonaldItemSlotCount = 0x2032E146;
     public static uint DonaldItemSlot1 = 0x2032E168;
     public static uint DonaldItemSlot2 = 0x2032E16A;
-    public static uint DonaldAbilityStart = 0x2032E188;
+    public static uint DonaldAbilityStart = 0x2032E188; 
+    // First ability is at: 0x2032E18C
 
     public static uint GoofyArmorSlotCount = 0x2032E258;
     public static uint GoofyArmorSlot1 = 0x2032E25C;

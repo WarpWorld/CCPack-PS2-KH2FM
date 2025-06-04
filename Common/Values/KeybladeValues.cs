@@ -1,6 +1,7 @@
 namespace CrowdControl.Games.Packs.KH2FM;
 
-public static class KeybladeValues {
+public static class KeybladeValues
+{
     public static int KingdomKey = 0x29;
     public static int Oathkeeper = 0x2A;
     public static int Oblivion = 0x2B;
@@ -28,4 +29,5 @@ public static class KeybladeValues {
     public static int TwoBecomeOne = 0x220;
     public static int WinnersProof = 0x221;
     public static ushort StruggleBat = 0x180;
+    public static ushort Mulan = 0x6;
 }

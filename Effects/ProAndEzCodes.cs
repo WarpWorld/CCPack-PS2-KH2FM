@@ -11,13 +11,21 @@ public partial class KH2FM {
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;
 
-        public override IList<String> Codes { get; } = [EffectIds.ProCodes, EffectIds.EzCodes];
+        // Refresh every 2 seconds so that we don't just 
+        // tear through the values too quickly.
+        public override SITimeSpan RefreshInterval { get; } = 2.0f;
+
+        public override IList<String> Codes { get; } = new [] { EffectIds.ProCodes, EffectIds.EzCodes };
 
         public override Mutex Mutexes { get; } =
         [
             EffectIds.HealSora, 
             EffectIds.OneShotSora, 
             EffectIds.Invulnerability,
+            EffectIds.ZeroMPSora,
+            EffectIds.UnlimitedMPSora,
+            EffectIds.ZeroDrive,
+            EffectIds.UnlimitedDrive,
             EffectIds.ProCodes,
             EffectIds.EzCodes
         ];
@@ -47,10 +55,26 @@ public partial class KH2FM {
             success &= Connector.Write32LE(StatAddresses.MP, (uint)newMP);
 
             // Drive
-            success &= Connector.Read32LE(DriveAddresses.Drive, out uint currentDrive);
-            success &= Connector.Read32LE(DriveAddresses.MaxDrive, out uint maxDrive);
-            float newDrive = Clamp(currentDrive * percentChange, maxDrive);
-            success &= Connector.Write32LE(DriveAddresses.Drive, (uint)newDrive);
+            // We want to lower the byte until it rolls over,
+            //  wherein we will lower the current drive, until we hit 0
+            success &= Connector.Read8(DriveAddresses.DriveFill, out byte currentDriveFill);
+            success &= Connector.Read8(DriveAddresses.Drive, out byte currentDrive);
+            float newDriveFill = Clamp(currentDriveFill * percentChange, 255.0f);
+
+            if (newDriveFill > currentDriveFill)
+            {
+                if (currentDrive > 0)
+                {
+                    int newCurrentDrive = currentDrive - 1;
+
+                    success &= Connector.Write8(DriveAddresses.Drive, (byte)newCurrentDrive);
+                    success &= Connector.Write8(DriveAddresses.DriveFill, (byte)newDriveFill);
+                }
+            }
+            else
+            {
+                success &= Connector.Write8(DriveAddresses.DriveFill, (byte)newDriveFill);
+            }
 
             return success;
         }

@@ -1,6 +1,8 @@
 namespace CrowdControl.Games.Packs.KH2FM;
 
-public static class StatAddresses {
+public static class StatAddresses
+{
+    public static uint PartyExp = 0x2032F210;
     public static uint Level = 0x2032E02F;
     public static uint HP = 0x21C6C750;
     public static uint MaxHP = 0x21C6C754;
@@ -22,4 +24,14 @@ public static class StatAddresses {
     public static uint DefenseBoostStat = 0x2032E02B;
     public static uint APBoostStat = 0x2032E028;
     public static uint Speed = 0x21ACDDE4;
+
+    public static uint DonaldHP = 0x21C6C4E8;
+    public static uint DonaldMaxHP = 0x21C6C4EC;
+    public static uint DonaldMP = 0x21C6C668;
+    public static uint DonaldMaxMP = 0x21C6C66C;
+
+    public static uint GoofyHP = 0x21C6C280;
+    public static uint GoofyMaxHP = 0x21C6C284;
+    public static uint GoofyMP = 0x21C6C400;
+    public static uint GoofyMaxMP = 0x21C6C404;
 }

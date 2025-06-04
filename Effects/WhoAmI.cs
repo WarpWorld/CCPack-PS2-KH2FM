@@ -1,5 +1,8 @@
 using ConnectorLib;
 using CrowdControl.Games.SmartEffects;
+using System;
+using System.Collections.Generic;
+using System.Threading;
 
 namespace CrowdControl.Games.Packs.KH2FM;
 
@@ -58,63 +61,63 @@ public partial class KH2FM {
 
         public override IList<String> Codes { get; } = [EffectIds.WhoAmI];
 
-        public override Mutex Mutexes { get; } = [EffectIds.WhoAmI, EffectIds.WhoAreThey, EffectIds.HostileParty];
+        public override Mutex Mutexes { get; } = new [] { 
+            EffectIds.WhoAmI, 
+            EffectIds.WhoAreThey, 
+            EffectIds.HostileParty,
+
+            EffectIds.IAmDarkness,
+            EffectIds.BackseatDriver,
+            EffectIds.ValorForm,
+            EffectIds.WisdomForm,
+            EffectIds.LimitForm,
+            EffectIds.MasterForm,
+            EffectIds.FinalForm,
+            EffectIds.HeroSora,
+            EffectIds.ZeroSora
+        };
 
         public override bool StartAction()
         {
             bool success = true;
+
             ushort randomModel = (ushort)values[new Random().Next(values.Count)];
 
             success &= Connector.Read16LE(CharacterAddresses.Sora, out ushort currentSora);
 
-
             success &= Connector.Write16LE(CharacterAddresses.Sora, randomModel);
-
-            success &= Connector.Read16LE(CharacterAddresses.Sora, out ushort newSora);
-
-
             success &= Connector.Write16LE(CharacterAddresses.LionSora, randomModel);
             success &= Connector.Write16LE(CharacterAddresses.ChristmasSora, randomModel);
             success &= Connector.Write16LE(CharacterAddresses.SpaceParanoidsSora, randomModel);
             success &= Connector.Write16LE(CharacterAddresses.TimelessRiverSora, randomModel);
 
-            // TODO Figure out how to swap to Sora
             //int randomIndex = new Random().Next(values.Count);
 
             //// Set Valor Form to Random Character so we can activate form
-            //Connector.Write16LE(ConstantAddresses.ValorFormSora, (ushort)values[randomIndex]);
+            //success &= Connector.Write16LE(CharacterAddresses.ValorFormSora, (ushort)values[randomIndex]);
 
-            //// NEEDS ADDITIONAL WORK AND TESTING
+            //success &= Connector.Write16LE(DriveAddresses.ReactionPopup, (ushort)MiscValues.None);
+            //success &= Connector.Write16LE(DriveAddresses.ReactionOption, (ushort)ReactionValues.ReactionValor);
+            //success &= Connector.Write16LE(DriveAddresses.ReactionEnable, (ushort)MiscValues.None);
 
-            //Connector.Write16LE(ConstantAddresses.ReactionPopup, (ushort)ConstantValues.None);
+            //Thread.Sleep(200);
 
-            //Connector.Write16LE(ConstantAddresses.ReactionOption, (ushort)ConstantValues.ReactionValor);
-
-            //Connector.Write16LE(ConstantAddresses.ReactionEnable, (ushort)ConstantValues.None);
-
-            //Timer timer = new Timer(250);
-            //timer.Elapsed += (obj, args) =>
-            //{
-            //    Connector.Read16LE(ConstantAddresses.ReactionEnable, out ushort value);
-
-            //    if (value == 5) timer.Stop();
-
-            //    Connector.Write8(ConstantAddresses.ButtonPress, (byte)ConstantValues.Triangle);
-            //};
-            //timer.Start();
+            //Utils.TriggerReaction(Connector);
 
             return success;
         }
 
         public override bool StopAction() {
             bool success = true;
+
             success &= Connector.Write16LE(CharacterAddresses.Sora, (ushort)CharacterValues.Sora);
             success &= Connector.Write16LE(CharacterAddresses.LionSora, (ushort)CharacterValues.LionSora);
             success &= Connector.Write16LE(CharacterAddresses.ChristmasSora, (ushort)CharacterValues.ChristmasSora);
             success &= Connector.Write16LE(CharacterAddresses.SpaceParanoidsSora, (ushort)CharacterValues.SpaceParanoidsSora);
             success &= Connector.Write16LE(CharacterAddresses.TimelessRiverSora, (ushort)CharacterValues.TimelessRiverSora);
 
-            //Connector.Write16LE(ConstantAddresses.ValorFormSora, ConstantValues.ValorFormSora);
+            //success &= Connector.Write16LE(CharacterAddresses.ValorFormSora, (ushort)CharacterValues.ValorFormSora);
+            
             return success;
         }
     }
