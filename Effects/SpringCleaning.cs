@@ -1,5 +1,6 @@
 using ConnectorLib;
 using CrowdControl.Games.SmartEffects;
+using System.Collections.Generic;
 
 namespace CrowdControl.Games.Packs.KH2FM;
 
@@ -7,6 +8,10 @@ public partial class KH2FM {
     [EffectHandler("spring_cleaning")]
     public class SpringCleaning : BaseEffect
     {
+        private static Dictionary<uint, byte> items = MiscAddresses.MakeInventoryDictionary();
+
+        private static Dictionary<uint, ushort> slots = EquipmentAddresses.MakeSoraInventorySlotsDictionary();
+
         public SpringCleaning(KH2FM pack) : base(pack) { }
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;
@@ -25,12 +30,11 @@ public partial class KH2FM {
             EffectIds.ZeroSora
         ];
 
-        private readonly Dictionary<uint, byte> items = MiscAddresses.MakeInventoryDictionary();
-
-        private readonly Dictionary<uint, ushort> slots = EquipmentAddresses.MakeSoraInventorySlotsDictionary();
-
         public override bool StartAction()
         {
+            items = MiscAddresses.MakeInventoryDictionary();
+            slots = EquipmentAddresses.MakeSoraInventorySlotsDictionary();
+
             bool success = true;
             // Save all current items, before writing max value to them
             foreach (var (itemAddress, _) in items)
@@ -63,6 +67,7 @@ public partial class KH2FM {
             bool success = true;
             // Write back all saved items
             foreach (var (itemAddress, itemCount) in items)
+            
             {
                 success &= Connector.Write8(itemAddress, itemCount);
             }
@@ -70,7 +75,11 @@ public partial class KH2FM {
             // Write back all saved slots
             foreach (var (slotAddress, slotValue) in slots)
             {
-                success &= Connector.Write16LE(slotAddress, slotValue);
+                if (slotAddress != EquipmentAddresses.SoraWeaponSlot && slotAddress != EquipmentAddresses.SoraValorWeaponSlot &&
+                    slotAddress != EquipmentAddresses.SoraMasterWeaponSlot && slotAddress != EquipmentAddresses.SoraFinalWeaponSlot)
+                {
+                    success &= Connector.Write16LE(slotAddress, slotValue);
+                }
             }
             return success;
         }

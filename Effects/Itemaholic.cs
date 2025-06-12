@@ -1,5 +1,7 @@
 using ConnectorLib;
 using CrowdControl.Games.SmartEffects;
+using System.Collections.Generic;
+using System;
 
 namespace CrowdControl.Games.Packs.KH2FM;
 
@@ -40,70 +42,50 @@ public partial class KH2FM {
             EffectIds.ZeroSora
         ];
 
-        private readonly Dictionary<uint, byte> items = MiscAddresses.MakeInventoryDictionary();
-        private readonly Dictionary<uint, byte> baseItems = BaseItemAddresses.MakeBaseItemsDictionary();
-        private readonly Dictionary<uint, byte> accessories = AccessoryAddresses.MakeAccessoriesDictionary();
-        private readonly Dictionary<uint, byte> armors = ArmorAddresses.MakeArmorDictionary();
-        private readonly Dictionary<uint, byte> keyblades = KeybladeAddresses.MakeKeybladesDictionary();
+        private static Dictionary<uint, byte> baseItems = BaseItemAddresses.MakeBaseItemsDictionary();
+        private static Dictionary<uint, byte> accessories = AccessoryAddresses.MakeAccessoriesDictionary();
+        private static Dictionary<uint, byte> armors = ArmorAddresses.MakeArmorDictionary();
+        private static Dictionary<uint, byte> keyblades = KeybladeAddresses.MakeKeybladesDictionary();
 
-        private readonly Dictionary<uint, ushort> slots = EquipmentAddresses.MakeSoraInventorySlotsDictionary();
+        private static Dictionary<uint, ushort> slots = EquipmentAddresses.MakeSoraInventorySlotsDictionary();
 
         public override bool StartAction()
         {
             bool success = true;
             EffectMode effectMode = Lookup(EffectMode.Itemaholic, EffectMode.BaseItems, EffectMode.Accessories, EffectMode.Armors, EffectMode.Keyblades);
 
-            if(effectMode == EffectMode.Itemaholic || effectMode == EffectMode.BaseItems)
+            if (effectMode == EffectMode.Itemaholic || effectMode == EffectMode.BaseItems)
             {
                 foreach (var (itemAddress, _) in baseItems)
                 {
                     success &= Connector.Read8(itemAddress, out byte itemCount);
-
-                    // Save the current item, before writing new value to it
-                    baseItems[itemAddress] = itemCount;
-
-                    success &= Connector.Write8(itemAddress, 8);
+                    success &= Connector.Write8(itemAddress, (byte) (itemCount + 8));
                 }
             }
 
-            if(effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Accessories)
+            if (effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Accessories)
             {
                 foreach (var (itemAddress, _) in accessories)
                 {
                     success &= Connector.Read8(itemAddress, out byte itemCount);
-
-                    // Save the current item, before writing new value to it
-                    accessories[itemAddress] = itemCount;
-
-                    // Give 8 of each accessory
-                    success &= Connector.Write8(itemAddress, 8);
+                    success &= Connector.Write8(itemAddress, (byte) (itemCount + 8));
                 }
             }
 
-            if(effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Armors)
+            if (effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Armors)
             {
                 foreach (var (itemAddress, _) in armors)
                 {
                     success &= Connector.Read8(itemAddress, out byte itemCount);
-
-                    // Save the current item, before writing new value to it
-                    armors[itemAddress] = itemCount;
-
-                    // Give 8 of each armor
-                    success &= Connector.Write8(itemAddress, 8);
+                    success &= Connector.Write8(itemAddress, (byte) (itemCount + 8));
                 }
             }
-            if(effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Keyblades)
+            if (effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Keyblades)
             {
                 foreach (var (itemAddress, _) in keyblades)
                 {
                     success &= Connector.Read8(itemAddress, out byte itemCount);
-
-                    // Save the current item, before writing new value to it
-                    keyblades[itemAddress] = itemCount;
-
-                    // Give 8 of each keyblade
-                    success &= Connector.Write8(itemAddress, 1);
+                    success &= Connector.Write8(itemAddress, (byte) (itemCount + 1));
                 }
             }
 
@@ -114,7 +96,6 @@ public partial class KH2FM {
             foreach (var (slotAddress, _) in slots)
             {
                 success &= Connector.Read16LE(slotAddress, out ushort slotValue);
-
                 slots[slotAddress] = slotValue;
             }
 
@@ -129,30 +110,34 @@ public partial class KH2FM {
 
             if(effectMode == EffectMode.Itemaholic || effectMode == EffectMode.BaseItems)
             {
-                foreach (var (itemAddress, itemCount) in baseItems)
+                foreach (var (itemAddress, _) in baseItems)
                 {
-                    success &= Connector.Write8(itemAddress, itemCount);
+                    success &= Connector.Read8(itemAddress, out byte itemCount);
+                    success &= Connector.Write8(itemAddress, (byte) (itemCount - 8));
                 }
             }
             if(effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Accessories)
             {
-                foreach (var (itemAddress, itemCount) in accessories)
+                foreach (var (itemAddress, _) in accessories)
                 {
-                    success &= Connector.Write8(itemAddress, itemCount);
+                    success &= Connector.Read8(itemAddress, out byte itemCount);
+                    success &= Connector.Write8(itemAddress, (byte) (itemCount - 8));
                 }
             }
             if(effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Armors)
             {
-                foreach (var (itemAddress, itemCount) in armors)
+                foreach (var (itemAddress, _) in armors)
                 {
-                    success &= Connector.Write8(itemAddress, itemCount);
+                    success &= Connector.Read8(itemAddress, out byte itemCount);
+                    success &= Connector.Write8(itemAddress, (byte) (itemCount - 8));
                 }
             }
             if(effectMode == EffectMode.Itemaholic || effectMode == EffectMode.Keyblades)
             {
-                foreach (var (itemAddress, itemCount) in keyblades)
+                foreach (var (itemAddress, _) in keyblades)
                 {
-                    success &= Connector.Write8(itemAddress, itemCount);
+                    success &= Connector.Read8(itemAddress, out byte itemCount);
+                    success &= Connector.Write8(itemAddress, (byte) (itemCount - 1));
                 }
             }
 

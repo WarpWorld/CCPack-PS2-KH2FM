@@ -1,4 +1,5 @@
 using CrowdControl.Games.SmartEffects;
+using System.Collections.Generic;
 
 namespace CrowdControl.Games.Packs.KH2FM;
 
@@ -22,7 +23,7 @@ public partial class KH2FM {
             // Sora has 148 (maybe divided by 2?) slots available for abilities
             // start at the end of the list and work backwards
             // to find the first empty slot so that we don't conflict with other abilities
-            for (uint i = EquipmentAddresses.SoraAbilityStart + 147; i > EquipmentAddresses.SoraAbilityStart ; i -= 2)
+            for (uint i = EquipmentAddresses.SoraAbilityStart; i < EquipmentAddresses.SoraAbilityStart + 148; i += 2)
             {
                 success &= Connector.Read8(i, out byte value);
 
@@ -30,20 +31,20 @@ public partial class KH2FM {
 
                 startAddress = i;
 
-                success &= Connector.Write8(startAddress - 1, (byte)AbilityValues.HighJumpMax);
-                success &= Connector.Write8(startAddress, 0x80);
+                success &= Connector.Write8(startAddress, (byte)AbilityValues.HighJumpMax);
+                success &= Connector.Write8(startAddress + 1, 0x80);
 
-                success &= Connector.Write8(startAddress - 3, (byte)AbilityValues.QuickRunMax);
-                success &= Connector.Write8(startAddress - 2, 0x80);
+                success &= Connector.Write8(startAddress + 2, (byte)AbilityValues.QuickRunMax);
+                success &= Connector.Write8(startAddress + 3, 0x80);
 
-                success &= Connector.Write8(startAddress - 5, (byte)AbilityValues.DodgeRollMax);
-                success &= Connector.Write8(startAddress - 4, 0x82);
+                success &= Connector.Write8(startAddress + 4, (byte)AbilityValues.DodgeRollMax);
+                success &= Connector.Write8(startAddress + 5, 0x82);
 
-                success &= Connector.Write8(startAddress - 7, (byte)AbilityValues.AerialDodgeMax);
-                success &= Connector.Write8(startAddress - 6, 0x80);
+                success &= Connector.Write8(startAddress + 6, (byte)AbilityValues.AerialDodgeMax);
+                success &= Connector.Write8(startAddress + 7, 0x80);
 
-                success &= Connector.Write8(startAddress - 9, (byte)AbilityValues.GlideMax);
-                success &= Connector.Write8(startAddress - 8, 0x80);
+                success &= Connector.Write8(startAddress + 8, (byte)AbilityValues.GlideMax);
+                success &= Connector.Write8(startAddress + 9, 0x80);
 
                 break;
             }
@@ -54,20 +55,32 @@ public partial class KH2FM {
         public override bool StopAction() {
             bool success = true;
 
-            success &= Connector.Write8(startAddress, 0);
-            success &= Connector.Write8(startAddress - 1, 0);
+            Dictionary<byte, bool> abilityRemoved = new()
+            {
+                { (byte)AbilityValues.HighJumpMax, false },
+                { (byte)AbilityValues.QuickRunMax, false },
+                { (byte)AbilityValues.DodgeRollMax, false },
+                { (byte)AbilityValues.AerialDodgeMax, false },
+                { (byte)AbilityValues.GlideMax, false }
+            };
 
-            success &= Connector.Write8(startAddress - 2, 0);
-            success &= Connector.Write8(startAddress - 3, 0);
+            for (uint i = EquipmentAddresses.SoraAbilityStart + 147; i >= EquipmentAddresses.SoraAbilityStart; i--)
+            {
+                success &= Connector.Read8(i, out byte value);
 
-            success &= Connector.Write8(startAddress - 4, 0);
-            success &= Connector.Write8(startAddress - 5, 0);
-
-            success &= Connector.Write8(startAddress - 6, 0);
-            success &= Connector.Write8(startAddress - 7, 0);
-
-            success &= Connector.Write8(startAddress - 8, 0);
-            success &= Connector.Write8(startAddress - 9, 0);
+                if (value == (byte)AbilityValues.HighJumpMax || value == (byte)AbilityValues.QuickRunMax ||
+                    value == (byte)AbilityValues.DodgeRollMax || value == (byte)AbilityValues.AerialDodgeMax ||
+                    value == (byte)AbilityValues.GlideMax)
+                {
+                    // Only remove the ability once so that we don't remove
+                    // the genuinely acquired abilities
+                    if (!abilityRemoved[value])
+                    {
+                        success &= Connector.Write8(i, 0);
+                        success &= Connector.Write8(i + 1, 0);
+                    }
+                }
+            }
 
             return success;
         }

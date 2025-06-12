@@ -2,7 +2,8 @@ using ConnectorLib;
 using Timer = System.Timers.Timer;
 namespace CrowdControl.Games.Packs.KH2FM;
 
-public static class Utils {
+public static class Utils
+{
     public static bool CheckTPose(IPS2Connector connector)
     {
         if (connector == null) return false;
@@ -33,7 +34,8 @@ public static class Utils {
         }
     }
 
-    public static void TriggerReaction(IPS2Connector connector) {
+    public static void TriggerReaction(IPS2Connector connector)
+    {
         Timer timer = new()
         {
             AutoReset = true,
@@ -54,5 +56,18 @@ public static class Utils {
             connector.Write8(ButtonAddresses.TrianglePressed, 0xFF); // Triangle button pressed
         };
         timer.Start();
+    }
+    
+    public static void ErrorForRoxas(IPS2Connector connector)
+    {
+        if (connector == null) return;
+
+        // Roxas has a different animation state offset
+        connector.Read8(0x21C6CC20, out byte characterId);
+
+        if (characterId == 90)
+        {
+            throw new System.Exception("This effect cannot be used on Roxas. Please use it on Sora instead.");
+        }
     }
 }

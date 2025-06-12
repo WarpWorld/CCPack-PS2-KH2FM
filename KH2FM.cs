@@ -207,12 +207,12 @@ public partial class KH2FM : PS2EffectPack, IHandlerCollection
             Description = "Add 8 of each base item to the party's inventory.",
             Duration = SITimeSpan.FromSeconds(60)
         },
-        new ("Give all Accessory", EffectIds.AllAccessories) {
+        new ("Give all Accessories", EffectIds.AllAccessories) {
             Price = 50,
             Description = "Add 8 of each accessory to the party's inventory.",
             Duration = SITimeSpan.FromSeconds(60)
         },
-        new ("Give all Armors", EffectIds.AllArmors) {
+        new ("Give all Armor", EffectIds.AllArmors) {
             Price = 50,
             Description = "Add 8 of each armor to the party's inventory.",
             Duration = SITimeSpan.FromSeconds(60)
