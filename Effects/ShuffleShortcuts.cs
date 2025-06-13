@@ -27,15 +27,15 @@ public partial class KH2FM {
                 { MagicAddresses.Magnet, new Tuple<int, int>(QuickSlotValues.MagnetQuickSlotValue, MagicValues.Magnet) }
             };
 
-        private ushort shortcut1;
-        private ushort shortcut2;
-        private ushort shortcut3;
-        private ushort shortcut4;
+        private static ushort shortcut1;
+        private static ushort shortcut2;
+        private static ushort shortcut3;
+        private static ushort shortcut4;
 
-        private ulong shortcut1_set;
-        private ulong shortcut2_set;
-        private ulong shortcut3_set;
-        private ulong shortcut4_set;
+        private static ulong shortcut1_set;
+        private static ulong shortcut2_set;
+        private static ulong shortcut3_set;
+        private static ulong shortcut4_set;
 
         private (int, bool) CheckQuickSlot(IPS2Connector Connector, int key, Tuple<int, int> value, int shortcutNumber)
         {

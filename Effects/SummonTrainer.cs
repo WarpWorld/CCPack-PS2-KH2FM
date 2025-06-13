@@ -21,7 +21,7 @@ public partial class KH2FM {
         ];
 
         // Used to store all the information about what held items Sora had before
-        private readonly Dictionary<uint, byte> drivesSummons = new()
+        private static Dictionary<uint, byte> drivesSummons = new()
         {
             { DriveAddresses.DriveForms, 0 }, { DriveAddresses.DriveLimitForm, 0 },
             //{ (uint)ConstantAddresses.UkeleleBaseballCharm, 0 }, 

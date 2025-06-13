@@ -7,7 +7,7 @@ public partial class KH2FM {
     [EffectHandler("struggling", "ultima", "forbidden_keyblade")]
     public class WeaponSwap : BaseEffect
     {
-        private ushort? currentKeyblade = null;
+        private static ushort? currentKeyblade = null;
         public WeaponSwap(KH2FM pack) : base(pack) { }
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;

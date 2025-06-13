@@ -116,12 +116,12 @@ public partial class KH2FM : PS2EffectPack, IHandlerCollection
         },
         new ("Struggling", EffectIds.Struggling) {
             Price = 50,
-            Description = "Change Sora's weapon to the Struggle Bat.",
+            Description = "Change Sora's weapon to the Struggle Bat. [Requires a room change or form change to take effect]",
             Duration = SITimeSpan.FromSeconds(60)
         },
         new ("Forbidden Keyblade", EffectIds.ForbiddenKeyblade) {
             Price = 50,
-            Description = "Change Sora's weapon to a cursed alternative to a keyblade.",
+            Description = "Change Sora's weapon to a cursed alternative to a keyblade. [Requires a room change or form change to take effect]",
             Duration = SITimeSpan.FromSeconds(60)
         },
         new ("I Am Darkness", EffectIds.IAmDarkness) {
@@ -154,7 +154,7 @@ public partial class KH2FM : PS2EffectPack, IHandlerCollection
         },
         new ("Growth Spurt", EffectIds.GrowthSpurt) {
             Price = 50,
-            Description = "Give Sora Max Growth Abilities.",
+            Description = "Give Sora Max Growth Abilities. [Requires a room change or form change to take effect]",
             Duration = SITimeSpan.FromSeconds(60)
         },
         // new ("Hastega", EffectIds.Hastega) {
@@ -185,17 +185,17 @@ public partial class KH2FM : PS2EffectPack, IHandlerCollection
         new ("Shuffle Shortcuts", EffectIds.ShuffleShortcuts) {
             Price = 50,
             Description = "Set Sora's Shortcuts to random commands.",
-            Duration = SITimeSpan.FromSeconds(60)
+            Duration = SITimeSpan.FromSeconds(30)
         },
         new ("Expert Magician", EffectIds.ExpertMagician) {
             Price = 50,
-            Description = "Give Sora Max Magic and lower the cost of Magic.",
+            Description = "Give Sora Max Magic and lower the cost of Magic. [Requires a room change or form change to take effect]",
             Duration = SITimeSpan.FromSeconds(30)
         },
         new ("Amnesiac Magician", EffectIds.AmnesiacMagician) {
             Price = 50,
-            Description = "Take away all of Sora's Magic.",
-            Duration = SITimeSpan.FromSeconds(60)
+            Description = "Take away all of Sora's Magic. [Requires a room change or form change to take effect]",
+            Duration = SITimeSpan.FromSeconds(30)
         },
         new ("Itemaholic", EffectIds.Itemaholic) {
             Price = 50,

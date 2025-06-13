@@ -7,10 +7,6 @@ public partial class KH2FM {
     [EffectHandler("backseat_driver", "valor_form", "wisdom_form", "limit_form", "master_form", "final_form")]
     public class BackseatDriver : BaseEffect
     {
-        private ushort currentKeyblade;
-        private ushort currentValorKeyblade;
-        private ushort currentMasterKeyblade;
-        private ushort currentFinalKeyblade;
         private readonly List<uint> driveFormValues =
         [
             ReactionValues.ReactionValor,
@@ -64,12 +60,12 @@ public partial class KH2FM {
                 4 // Final Form
             );
 
-            success &= Connector.Read16LE(EquipmentAddresses.SoraWeaponSlot, out currentKeyblade);
+            success &= Connector.Read16LE(EquipmentAddresses.SoraWeaponSlot, out ushort currentKeyblade);
 
             // Set the current keyblade in the slot for the drive form
             if (formIndex == 0) // Valor
             {
-                success &= Connector.Read16LE(EquipmentAddresses.SoraValorWeaponSlot, out currentValorKeyblade);
+                success &= Connector.Read16LE(EquipmentAddresses.SoraValorWeaponSlot, out ushort currentValorKeyblade);
                 
                 if (currentValorKeyblade < 0x41 || currentValorKeyblade == 0x81) // 0x81 seems to be a default (maybe just randomizer)
                 {
@@ -78,7 +74,7 @@ public partial class KH2FM {
             }
             else if (formIndex == 3) // Master
             {
-                success &= Connector.Read16LE(EquipmentAddresses.SoraMasterWeaponSlot, out currentMasterKeyblade);
+                success &= Connector.Read16LE(EquipmentAddresses.SoraMasterWeaponSlot, out ushort currentMasterKeyblade);
 
                 if (currentMasterKeyblade < 0x41 || currentMasterKeyblade == 0x44) // 0x44 seems to be a default (maybe just randomizer)
                 {
@@ -87,7 +83,7 @@ public partial class KH2FM {
             }
             else if (formIndex == 4) // Final
             {
-                success &= Connector.Read16LE(EquipmentAddresses.SoraFinalWeaponSlot, out currentFinalKeyblade);
+                success &= Connector.Read16LE(EquipmentAddresses.SoraFinalWeaponSlot, out ushort currentFinalKeyblade);
 
                 if (currentFinalKeyblade < 0x41 || currentFinalKeyblade == 0x45) // 0x45 seems to be a default (maybe just randomizer)
                 {

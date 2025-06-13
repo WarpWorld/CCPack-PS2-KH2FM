@@ -7,8 +7,6 @@ public partial class KH2FM {
     [EffectHandler("tiny_weapon", "giant_weapon")]
     public class WeaponSize : BaseEffect
     {
-        private ushort? currentKeyblade = null;
-        
         public WeaponSize(KH2FM pack) : base(pack) { }
 
         public override EffectHandlerType Type => EffectHandlerType.Durational;

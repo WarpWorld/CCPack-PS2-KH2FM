@@ -20,12 +20,12 @@ public partial class KH2FM {
             EffectIds.ZeroSora
         ];
 
-        private byte fire;
-        private byte blizzard;
-        private byte thunder;
-        private byte cure;
-        private byte reflect;
-        private byte magnet;
+        private static byte fire;
+        private static byte blizzard;
+        private static byte thunder;
+        private static byte cure;
+        private static byte reflect;
+        private static byte magnet;
 
         public override bool StartAction()
         {
