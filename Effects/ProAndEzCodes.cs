@@ -1,4 +1,5 @@
 using ConnectorLib;
+using CrowdControl.Common;
 using CrowdControl.Games.SmartEffects;
 
 namespace CrowdControl.Games.Packs.KH2FM;
