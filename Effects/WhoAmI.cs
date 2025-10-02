@@ -81,7 +81,7 @@ public partial class KH2FM {
         {
             bool success = true;
 
-            ushort randomModel = (ushort)values[new Random().Next(values.Count)];
+            ushort randomModel = (ushort)values[RNG.Next(values.Count)];
 
             success &= Connector.Read16LE(CharacterAddresses.Sora, out ushort currentSora);
 
@@ -91,7 +91,7 @@ public partial class KH2FM {
             success &= Connector.Write16LE(CharacterAddresses.SpaceParanoidsSora, randomModel);
             success &= Connector.Write16LE(CharacterAddresses.TimelessRiverSora, randomModel);
 
-            //int randomIndex = new Random().Next(values.Count);
+            //int randomIndex = RNG.Next(values.Count);
 
             //// Set Valor Form to Random Character so we can activate form
             //success &= Connector.Write16LE(CharacterAddresses.ValorFormSora, (ushort)values[randomIndex]);

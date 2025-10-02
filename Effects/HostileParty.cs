@@ -47,8 +47,8 @@ public partial class KH2FM {
         {
             bool success = true;
 
-            ushort donald = (ushort)values[new Random().Next(values.Count)];
-            ushort goofy = (ushort)values[new Random().Next(values.Count)];
+            ushort donald = (ushort)values[RNG.Next(values.Count)];
+            ushort goofy = (ushort)values[RNG.Next(values.Count)];
 
             success &= Connector.Write16LE(CharacterAddresses.Donald, donald);
             success &= Connector.Write16LE(CharacterAddresses.BirdDonald, donald);

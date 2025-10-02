@@ -15,7 +15,6 @@ public partial class KH2FM {
 
         public override Mutex Mutexes { get; } = [EffectIds.ShuffleShortcuts];
 
-        private readonly Random random = new();
         private readonly Dictionary<int, Tuple<int, int>> values = new()
             {
                 { BaseItemAddresses.Potion, new Tuple<int, int>(QuickSlotValues.PotionQuickSlotValue, ItemValues.Potion) }, { BaseItemAddresses.HiPotion, new Tuple<int, int>(QuickSlotValues.HiPotionQuickSlotValue, ItemValues.HiPotion) },
@@ -120,10 +119,10 @@ public partial class KH2FM {
             success &= Connector.Read16LE(EquipmentAddresses.SoraQuickMenuSlot3, out shortcut3);
             success &= Connector.Read16LE(EquipmentAddresses.SoraQuickMenuSlot4, out shortcut4);
 
-            int key1 = values.Keys.ToList()[random.Next(values.Keys.Count)];
-            int key2 = values.Keys.ToList()[random.Next(values.Keys.Count)];
-            int key3 = values.Keys.ToList()[random.Next(values.Keys.Count)];
-            int key4 = values.Keys.ToList()[random.Next(values.Keys.Count)];
+            int key1 = values.Keys.ToList()[RNG.Next(values.Keys.Count)];
+            int key2 = values.Keys.ToList()[RNG.Next(values.Keys.Count)];
+            int key3 = values.Keys.ToList()[RNG.Next(values.Keys.Count)];
+            int key4 = values.Keys.ToList()[RNG.Next(values.Keys.Count)];
 
             (int value1, bool success1) = CheckQuickSlot(Connector, key1, values[key1], 1);
             (int value2, bool success2) = CheckQuickSlot(Connector, key2, values[key2], 2);

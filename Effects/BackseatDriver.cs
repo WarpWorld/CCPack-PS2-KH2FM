@@ -52,7 +52,7 @@ public partial class KH2FM {
             Thread.Sleep(200);
 
             int formIndex = Lookup(
-                new Random().Next(driveFormValues.Count), // Backseat Driver is a random form
+                RNG.Next(driveFormValues.Count), // Backseat Driver is a random form
                 0, // Valor Form
                 1, // Wisdom Form
                 2, // Limit Form
