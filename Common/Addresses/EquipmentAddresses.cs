@@ -46,7 +46,8 @@ public static class EquipmentAddresses {
     /// </summary>
     /// <returns>a dictionary with each inventory address and a value of zero</returns>
     public static Dictionary<uint, ushort> MakeSoraInventorySlotsDictionary() {
-        return new Dictionary<uint, ushort> {
+        return new()
+        {
             { SoraWeaponSlot, (ushort) KeybladeValues.KingdomKey },
             { SoraValorWeaponSlot, (ushort) KeybladeValues.KingdomKey },
             { SoraMasterWeaponSlot, (ushort) KeybladeValues.KingdomKey },

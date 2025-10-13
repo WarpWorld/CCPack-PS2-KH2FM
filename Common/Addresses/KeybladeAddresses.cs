@@ -39,7 +39,8 @@ public static class KeybladeAddresses {
     /// </summary>
     /// <returns>a dictionary with each keyblade's address and a value of zero</returns>
     public static Dictionary<uint, byte> MakeKeybladesDictionary () {
-        return new Dictionary<uint, byte> {
+        return new()
+        {
             { KingdomKey, 0 },
             { Oathkeeper, 0 },
             { Oblivion, 0 },

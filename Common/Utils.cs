@@ -67,7 +67,7 @@ public static class Utils
 
         if (characterId == 90)
         {
-            throw new System.Exception("This effect cannot be used on Roxas. Please use it on Sora instead.");
+            throw new("This effect cannot be used on Roxas. Please use it on Sora instead.");
         }
     }
 }

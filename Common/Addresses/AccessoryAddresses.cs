@@ -46,7 +46,8 @@ public static class AccessoryAddresses {
     /// </summary>
     /// <returns>a dictionary with each accessory address and a value of zero</returns>
     public static Dictionary<uint, byte> MakeAccessoriesDictionary() {
-        return new Dictionary<uint, byte> {
+        return new()
+        {
             { AbilityRing, 0 },
             { EngineersRing, 0 },
             { TechniciansRing, 0 },

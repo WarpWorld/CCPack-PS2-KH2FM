@@ -47,7 +47,8 @@ public static class ArmorAddresses {
     /// </summary>
     /// <returns>a dictionary with each armor address and a value of zero</returns>
     public static Dictionary<uint, byte> MakeArmorDictionary() {
-        return new Dictionary<uint, byte> {
+        return new()
+        {
             { ElvenBandana, 0 },
             { DivineBandana, 0 },
             { PowerBand, 0 },

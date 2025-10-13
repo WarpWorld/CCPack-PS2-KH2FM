@@ -17,13 +17,13 @@ public partial class KH2FM {
 
         private readonly Dictionary<int, Tuple<int, int>> values = new()
             {
-                { BaseItemAddresses.Potion, new Tuple<int, int>(QuickSlotValues.PotionQuickSlotValue, ItemValues.Potion) }, { BaseItemAddresses.HiPotion, new Tuple<int, int>(QuickSlotValues.HiPotionQuickSlotValue, ItemValues.HiPotion) },
-                { BaseItemAddresses.MegaPotion, new Tuple<int, int>(QuickSlotValues.MegaPotionQuickSlotValue, ItemValues.MegaPotion) }, { BaseItemAddresses.Ether, new Tuple<int, int>(QuickSlotValues.EtherQuickSlotValue, ItemValues.Ether) },
-                { BaseItemAddresses.MegaEther, new Tuple<int, int>(QuickSlotValues.MegaEtherQuickSlotValue, ItemValues.MegaEther) }, { BaseItemAddresses.Elixir, new Tuple<int, int>(QuickSlotValues.ElixirQuickSlotValue, ItemValues.Elixir) },
-                { BaseItemAddresses.Megalixir, new Tuple<int, int>(QuickSlotValues.MegalixirQuickSlotValue, ItemValues.Megalixir) }, { MagicAddresses.Fire, new Tuple<int, int>(QuickSlotValues.FireQuickSlotValue, MagicValues.Fire) },
-                { MagicAddresses.Blizzard, new Tuple<int, int>(QuickSlotValues.BlizzardQuickSlotValue, MagicValues.Blizzard) }, { MagicAddresses.Thunder, new Tuple<int, int>(QuickSlotValues.ThunderQuickSlotValue, MagicValues.Thunder) },
-                { MagicAddresses.Cure, new Tuple<int, int>(QuickSlotValues.CureQuickSlotValue, MagicValues.Cure) }, { MagicAddresses.Reflect, new Tuple<int, int>(QuickSlotValues.ReflectQuickSlotValue, MagicValues.Reflect) },
-                { MagicAddresses.Magnet, new Tuple<int, int>(QuickSlotValues.MagnetQuickSlotValue, MagicValues.Magnet) }
+                { BaseItemAddresses.Potion, new(QuickSlotValues.PotionQuickSlotValue, ItemValues.Potion) }, { BaseItemAddresses.HiPotion, new(QuickSlotValues.HiPotionQuickSlotValue, ItemValues.HiPotion) },
+                { BaseItemAddresses.MegaPotion, new(QuickSlotValues.MegaPotionQuickSlotValue, ItemValues.MegaPotion) }, { BaseItemAddresses.Ether, new(QuickSlotValues.EtherQuickSlotValue, ItemValues.Ether) },
+                { BaseItemAddresses.MegaEther, new(QuickSlotValues.MegaEtherQuickSlotValue, ItemValues.MegaEther) }, { BaseItemAddresses.Elixir, new(QuickSlotValues.ElixirQuickSlotValue, ItemValues.Elixir) },
+                { BaseItemAddresses.Megalixir, new(QuickSlotValues.MegalixirQuickSlotValue, ItemValues.Megalixir) }, { MagicAddresses.Fire, new(QuickSlotValues.FireQuickSlotValue, MagicValues.Fire) },
+                { MagicAddresses.Blizzard, new(QuickSlotValues.BlizzardQuickSlotValue, MagicValues.Blizzard) }, { MagicAddresses.Thunder, new(QuickSlotValues.ThunderQuickSlotValue, MagicValues.Thunder) },
+                { MagicAddresses.Cure, new(QuickSlotValues.CureQuickSlotValue, MagicValues.Cure) }, { MagicAddresses.Reflect, new(QuickSlotValues.ReflectQuickSlotValue, MagicValues.Reflect) },
+                { MagicAddresses.Magnet, new(QuickSlotValues.MagnetQuickSlotValue, MagicValues.Magnet) }
             };
 
         private static ushort shortcut1;

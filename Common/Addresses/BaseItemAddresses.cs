@@ -27,7 +27,8 @@ public static class BaseItemAddresses {
     /// </summary>
     /// <returns>a dictionary with each base item address and a value of zero</returns>
     public static Dictionary<uint, byte> MakeBaseItemsDictionary() {
-        return new Dictionary<uint, byte> {
+        return new()
+        {
             { (uint)Potion, 0 },
             { (uint)HiPotion, 0 },
             { (uint)Ether, 0 },
